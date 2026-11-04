@@ -414,6 +414,7 @@ private fun LatencyLine(turn: Turn) {
         m.firstTokenMs?.let { "MT 1st $it" },
         m.translateMs?.let { "MT $it" },
         m.firstAudioMs?.let { "TTS 1st $it" },
+        if (m.speculative) "⚡ early MT" else null,
     )
     if (parts.isEmpty()) return
     Text(

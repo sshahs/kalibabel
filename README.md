@@ -93,16 +93,27 @@ You can also open this page from the app, under **Settings → About → Release
 1. **Realtime STT when available.** Audio streams over a WebSocket while you speak, so the final
    transcript arrives within a few hundred milliseconds of you stopping. With batch STT, a local voice
    activity detector (VAD) cuts the utterance the moment you pause, and it uploads as raw 16 kHz PCM.
-2. **Pre-warming.** When you tap a mic, the app opens TLS/HTTP-2 connections to the translation and
+   The default **noise-robust detector** looks at the speech band of an FFT spectrum against a tracked
+   noise profile, so steady background noise (traffic, fans, cafés) doesn't keep it stuck "listening".
+   *Settings → Listening → Speech detector* switches back to the basic volume-based one.
+2. **Translating before you finish.** Once your words stop changing on screen, translation starts
+   while the recogniser is still confirming the end of the sentence. If the final transcript matches
+   (ignoring case and punctuation), the translation is already under way. Messages that benefited show
+   *⚡ early MT*. There are at most 3 speculative requests per utterance; turn this off under
+   *Settings → Translation*.
+3. **Pre-warming.** When you tap a mic, the app opens TLS/HTTP-2 connections to the translation and
    TTS providers (and loads the model on self-hosted Ollama), so those requests start hot.
-3. **Streaming translation.** Tokens are shown as they arrive and cut into speakable chunks. With
+4. **Streaming translation.** Tokens are shown as they arrive and cut into speakable chunks. With
    *Start speaking early* on, the first chunk can end at a clause boundary.
-4. **Speaking starts before the translation is finished.** TTS for chunk 1 runs while the LLM is still
-   writing chunk 2. Audio is streamed as PCM straight into a low-latency `AudioTrack`, with no file or
-   decoder in between.
-5. **Parallel turns, ordered playback.** Several turns can be in flight at once, but they're always
+5. **Speaking starts before the translation is finished.** With ElevenLabs (Flash, Turbo or
+   Multilingual v2), the translation is streamed into the voice **word by word** over its `stream-input`
+   WebSocket, which is opened as soon as the turn starts. With other providers, TTS for chunk 1 runs while
+   the LLM is still writing chunk 2. Either way, audio is streamed as PCM straight into a low-latency
+   `AudioTrack`, with no file or decoder in between. If the WebSocket fails, the turn falls back to
+   sentences.
+6. **Parallel turns, ordered playback.** Several turns can be in flight at once, but they're always
    spoken in conversation order. Tapping a mic interrupts playback (barge-in).
-6. **Thinking is turned off** for models where it can be: Gemini thinking budget 0, Ollama
+7. **Thinking is turned off** for models where it can be: Gemini thinking budget 0, Ollama
    `think: false`. Parameters a model rejects (for example `temperature` on reasoning models) are
    remembered and dropped automatically after the first error.
 
@@ -293,13 +304,13 @@ map it in `ProviderRegistry.create`.
 ## Roadmap and ideas
 
 **Latency**
-- [ ] **Speculative translation.** Start translating stable partial transcripts before the final one
-  arrives, and patch the result if the final differs.
-- [ ] **Text-streaming TTS over WebSockets** (ElevenLabs `stream-input`, Cartesia WebSocket), feeding
-  tokens straight to TTS instead of waiting for chunk boundaries.
+- [x] **Speculative translation** of stable partial transcripts.
+- [x] **Text-streaming TTS over WebSockets** for ElevenLabs. Cartesia and Deepgram WebSockets would be
+  next.
 - [ ] **Speech-to-speech realtime models** (OpenAI Realtime, Gemini Live) as a single-hop mode.
-- [ ] **A neural VAD** (Silero via ONNX Runtime) in place of the energy-based VAD, for better
-  end-of-speech detection in noisy places.
+- [x] **A noise-robust speech detector** (spectral, pure Kotlin).
+- [ ] **A neural VAD** (Silero via ONNX Runtime) for babble noise, such as other people talking. It
+  would add about 6 MB per ABI.
 - [ ] **Adaptive provider racing.** Send the request to two translation providers and use whichever
   answers first, or auto-pick based on measured p50 latency per network.
 

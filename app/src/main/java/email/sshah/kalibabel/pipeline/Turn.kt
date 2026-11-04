@@ -21,6 +21,8 @@ data class TurnMetrics(
     val firstAudioMs: Long? = null,
     /** End of speech → first audio sample played: the number that matters. */
     val mouthToEarMs: Long? = null,
+    /** The translation was started from a stable partial transcript, before the final one. */
+    val speculative: Boolean = false,
 )
 
 @Serializable

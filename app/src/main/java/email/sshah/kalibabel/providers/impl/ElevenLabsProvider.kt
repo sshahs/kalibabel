@@ -1,9 +1,9 @@
 package email.sshah.kalibabel.providers.impl
 
-import android.util.Base64
 import android.util.Log
 import email.sshah.kalibabel.audio.Pcm
 import email.sshah.kalibabel.data.Language
+import email.sshah.kalibabel.pipeline.SpeakableTextBuffer
 import email.sshah.kalibabel.net.ApiException
 import email.sshah.kalibabel.net.AppJson
 import email.sshah.kalibabel.net.WsMessage
@@ -26,6 +26,7 @@ import email.sshah.kalibabel.providers.SttEngine
 import email.sshah.kalibabel.providers.SttEvent
 import email.sshah.kalibabel.providers.SttRequest
 import email.sshah.kalibabel.providers.SttResult
+import email.sshah.kalibabel.providers.StreamingTextTtsEngine
 import email.sshah.kalibabel.providers.TtsEngine
 import email.sshah.kalibabel.providers.TtsOutput
 import email.sshah.kalibabel.providers.TtsRequest
@@ -45,6 +46,7 @@ import okhttp3.MultipartBody
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.WebSocket
+import java.util.Base64
 
 /**
  * ElevenLabs: streaming TTS (PCM straight into AudioTrack), Scribe batch STT and Scribe v2
@@ -62,16 +64,18 @@ class ElevenLabsProvider(ctx: ProviderContext) : Provider(ctx) {
 
     // ------------------------------------------------------------------ TTS
 
-    override val tts: TtsEngine = object : TtsEngine {
+    private fun supportsLanguageCode(model: String) =
+        model.contains("v2_5") || model.contains("v3") || model.contains("flash") || model.contains("turbo")
+
+    /** HTTP streaming for whole sentences, WebSocket `stream-input` for word-by-word text. */
+    inner class Tts : TtsEngine, StreamingTextTtsEngine {
         override suspend fun synthesize(request: TtsRequest): TtsOutput {
             val voice = request.voice?.takeIf { it.isNotBlank() } ?: DEFAULT_VOICE
             val model = request.model.ifBlank { "eleven_flash_v2_5" }
             val body = buildJsonObject {
                 put("text", request.text)
                 put("model_id", model)
-                if (model.contains("v2_5") || model.contains("v3") || model.contains("flash") || model.contains("turbo")) {
-                    put("language_code", request.language.code)
-                }
+                if (supportsLanguageCode(model)) put("language_code", request.language.code)
                 request.previousText?.takeIf { it.isNotBlank() && !model.contains("v3") }?.let { put("previous_text", it.takeLast(300)) }
                 putJsonObject("voice_settings") {
                     put("stability", 0.5)
@@ -84,7 +88,48 @@ class ElevenLabsProvider(ctx: ProviderContext) : Provider(ctx) {
                 .headers(headers()).post(jsonBody(body)).build()
             return TtsOutput.Pcm(24_000, ctx.http.bytes(req, name))
         }
+
+        /** Eleven v3 is not available on the realtime WebSocket. */
+        override fun supportsTextStreaming(model: String) = !model.contains("v3")
+
+        override fun synthesizeTextStream(request: TtsRequest, text: ReceiveChannel<String>): TtsOutput.Pcm {
+            val voice = request.voice?.takeIf { it.isNotBlank() } ?: DEFAULT_VOICE
+            val model = request.model.ifBlank { "eleven_flash_v2_5" }
+            val query = buildList {
+                add("model_id" to model)
+                add("output_format" to "pcm_24000")
+                add("inactivity_timeout" to "60")
+                if (supportsLanguageCode(model)) add("language_code" to request.language.code)
+            }
+            val req = Request.Builder()
+                .url(url("v1/text-to-speech/$voice/stream-input", *query.toTypedArray()))
+                .headers(headers()).build()
+            val audio = channelFlow {
+                val socket = CompletableDeferred<WebSocket>()
+                var openSocket: WebSocket? = null
+                val sender = launch {
+                    val ws = socket.await()
+                    ws.send(streamInit(request.speed))
+                    val buffer = SpeakableTextBuffer()
+                    for (delta in text) buffer.push(delta)?.let { ws.send(streamText(it)) }
+                    buffer.flush()?.let { ws.send(streamText(it)) }
+                    ws.send(STREAM_CLOSE) // generates whatever is buffered, then isFinal
+                }
+                ctx.http.webSocket(req, name) { openSocket = it; socket.complete(it) }.collect { msg ->
+                    if (msg !is WsMessage.Text) return@collect
+                    val json = runCatching { AppJson.parseToJsonElement(msg.text) }.getOrNull() ?: return@collect
+                    json.str("audio")?.takeIf { it.isNotEmpty() }?.let { send(Base64.getDecoder().decode(it)) }
+                    if (json.bool("isFinal") == true) openSocket?.close(1000, null)
+                    val error = json.str("error") ?: json.obj("error").str("message")
+                    if (error != null) throw ApiException(name, json.int("code") ?: 400, json.str("message") ?: error)
+                }
+                sender.cancel()
+            }
+            return TtsOutput.Pcm(24_000, audio)
+        }
     }
+
+    override val tts: Tts = Tts()
 
     // ------------------------------------------------------------------ STT
 
@@ -127,7 +172,7 @@ class ElevenLabsProvider(ctx: ProviderContext) : Provider(ctx) {
 
             fun chunk(samples: ShortArray, commit: Boolean) = buildJsonObject {
                 put("message_type", "input_audio_chunk")
-                put("audio_base_64", Base64.encodeToString(Pcm.toBytes(samples), Base64.NO_WRAP))
+                put("audio_base_64", Base64.getEncoder().encodeToString(Pcm.toBytes(samples)))
                 put("commit", commit)
                 put("sample_rate", sampleRate)
             }.toString()
@@ -238,8 +283,26 @@ class ElevenLabsProvider(ctx: ProviderContext) : Provider(ctx) {
             .joinToString(" · ")
     }
 
-    private companion object {
+    internal companion object {
         const val TAG = "ElevenLabs"
+
+        /** Lower first threshold than the default (120) so the first words are voiced sooner. */
+        val CHUNK_SCHEDULE = listOf(50, 120, 160, 250)
+        const val STREAM_CLOSE = """{"text":""}"""
+
+        fun streamInit(speed: Float): String = buildJsonObject {
+            put("text", " ")
+            putJsonObject("voice_settings") {
+                put("stability", 0.5)
+                put("similarity_boost", 0.75)
+                put("speed", speed.coerceIn(0.7f, 1.2f).toDouble())
+            }
+            putJsonObject("generation_config") {
+                put("chunk_length_schedule", kotlinx.serialization.json.JsonArray(CHUNK_SCHEDULE.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+            }
+        }.toString()
+
+        fun streamText(piece: String): String = buildJsonObject { put("text", piece) }.toString()
 
         /** "George" — a premade multilingual voice available on every account. */
         const val DEFAULT_VOICE = "JBFqnCBsd6RMkjVDRZzb"

@@ -2,8 +2,10 @@ package email.sshah.kalibabel.pipeline
 
 import android.util.Log
 import email.sshah.kalibabel.audio.AudioRecorder
+import email.sshah.kalibabel.audio.EnergyClassifier
 import email.sshah.kalibabel.audio.Pcm
 import email.sshah.kalibabel.audio.SpeechItem
+import email.sshah.kalibabel.audio.SpectralClassifier
 import email.sshah.kalibabel.audio.SpeechQueue
 import email.sshah.kalibabel.audio.Vad
 import email.sshah.kalibabel.data.AppSettings
@@ -12,6 +14,7 @@ import email.sshah.kalibabel.data.Language
 import email.sshah.kalibabel.data.Languages
 import email.sshah.kalibabel.data.ListenMode
 import email.sshah.kalibabel.data.SettingsRepository
+import email.sshah.kalibabel.data.SpeechDetector
 import email.sshah.kalibabel.net.ApiException
 import email.sshah.kalibabel.providers.Capability
 import email.sshah.kalibabel.providers.ContextLine
@@ -19,6 +22,7 @@ import email.sshah.kalibabel.providers.MissingKeyException
 import email.sshah.kalibabel.providers.ProviderId
 import email.sshah.kalibabel.providers.ProviderRegistry
 import email.sshah.kalibabel.providers.ProviderSpecs
+import email.sshah.kalibabel.providers.StreamingTextTtsEngine
 import email.sshah.kalibabel.providers.SttEngine
 import email.sshah.kalibabel.providers.SttEvent
 import email.sshah.kalibabel.providers.SttRequest
@@ -46,6 +50,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.flow.transformWhile
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import java.io.IOException
 import java.net.SocketTimeoutException
@@ -250,6 +255,17 @@ class Interpreter(
 
         fun live(): Long = liveId ?: newTurn(direction, s, live = true).also { liveId = it }
 
+        // Start translating once the live partial stops changing (speaker paused, recognizer not
+        // yet committed); the final transcript then adopts it if the words match.
+        val speculator = if (s.speculativeTranslation && mode != ListenMode.MANUAL) {
+            SpeculativeTranslator(scope, stableMs = (s.silenceMs / 2L).coerceIn(150L, 350L)) { partial ->
+                startSpeculation(partial, direction, s, liveId ?: Long.MAX_VALUE)
+            }
+        } else {
+            null
+        }
+
+        try {
         events
             .transformWhile { ev ->
                 emit(ev)
@@ -272,6 +288,7 @@ class Interpreter(
                         val id = live()
                         val text = (manual.toString() + " " + ev.text).trim()
                         updateTurn(id) { it.copy(original = text, partial = true) }
+                        speculator?.onPartial(ev.text)
                     }
                     is SttEvent.Final -> {
                         val endAt = speechEndAt ?: System.currentTimeMillis()
@@ -283,12 +300,16 @@ class Interpreter(
                             val id = live()
                             liveId = null
                             speechEndAt = null
-                            processTurn(id, ev.text, ev.language, direction, endAt, s)
+                            processTurn(id, ev.text, ev.language, direction, endAt, s, speculator?.take(ev.text))
                             if (mode == ListenMode.CONTINUOUS) _state.update { it.copy(status = "Listening…") }
                         }
                     }
                 }
             }
+
+        } finally {
+            speculator?.cancelAll()
+        }
 
         if (mode == ListenMode.MANUAL && manual.isNotBlank()) {
             val id = liveId ?: newTurn(direction, s, live = true)
@@ -297,6 +318,14 @@ class Interpreter(
         }
     }
 
+    private fun newVad(s: AppSettings) = Vad(
+        silenceMs = s.silenceMs,
+        classifier = when (s.speechDetector) {
+            SpeechDetector.NOISE_ROBUST -> SpectralClassifier()
+            SpeechDetector.BASIC -> EnergyClassifier()
+        },
+    )
+
     private fun micFrames(s: AppSettings): Flow<ShortArray> =
         recorder.frames(s.micSource, s.noiseSuppression)
 
@@ -304,7 +333,7 @@ class Interpreter(
     private fun streamingEvents(engine: SttEngine, request: SttRequest, s: AppSettings, stop: CompletableDeferred<Unit>): Flow<SttEvent> =
         channelFlow {
             val audio = Channel<ShortArray>(capacity = 1000)
-            val vad = Vad(silenceMs = s.silenceMs)
+            val vad = newVad(s)
             val started = System.currentTimeMillis()
             val recording = launch {
                 var spoke = false
@@ -341,7 +370,7 @@ class Interpreter(
     /** Batch STT: local VAD cuts utterances; each one is uploaded the instant the speaker pauses. */
     private fun batchEvents(engine: SttEngine, request: SttRequest, s: AppSettings, stop: CompletableDeferred<Unit>): Flow<SttEvent> =
         channelFlow {
-            val vad = Vad(silenceMs = s.silenceMs)
+            val vad = newVad(s)
             val segments = Channel<ShortArray>(Channel.UNLIMITED)
             val mode = s.listenMode
             val transcriber = launch {
@@ -423,7 +452,15 @@ class Interpreter(
             .filterNotNull().joinToString(" → ")
     }
 
-    private fun processTurn(id: Long, text: String, sttLanguage: String?, direction: Direction, speechEndAt: Long, s: AppSettings) {
+    private fun processTurn(
+        id: Long,
+        text: String,
+        sttLanguage: String?,
+        direction: Direction,
+        speechEndAt: Long,
+        s: AppSettings,
+        speculation: Speculation? = null,
+    ) {
         val transcriptAt = System.currentTimeMillis()
         updateTurn(id) {
             it.copy(
@@ -456,7 +493,7 @@ class Interpreter(
         }
         val job = scope.launch {
             try {
-                translateAndSpeak(id, text, sttLanguage, direction, s, slot, transcriptAt)
+                translateAndSpeak(id, text, sttLanguage, direction, s, slot, transcriptAt, speculation)
                 if (slot == null) updateTurn(id) { it.copy(stage = TurnStage.DONE) }
             } catch (e: CancellationException) {
                 updateTurn(id) { if (it.active) it.copy(stage = TurnStage.CANCELLED) else it }
@@ -465,6 +502,7 @@ class Interpreter(
                 Log.w(TAG, "Turn $id failed", e)
                 updateTurn(id) { it.copy(stage = TurnStage.ERROR, error = e.userMessage()) }
             } finally {
+                speculation?.cancel()
                 slot?.close()
                 turnJobs.remove(id)
                 if (!isListening) _state.update { it.copy(status = null) }
@@ -488,6 +526,48 @@ class Interpreter(
             }
         }
 
+    private fun translationRequest(
+        text: String,
+        source: Language?,
+        target: Language?,
+        s: AppSettings,
+        model: String,
+        context: List<ContextLine>,
+    ) = TranslationRequest(
+        text = text,
+        source = source,
+        target = target,
+        languageA = s.langA,
+        languageB = s.langB,
+        bidirectional = source == null,
+        model = model,
+        systemPrompt = Prompts.system(source, target, s.langA, s.langB, s.formality, s.glossaryEntries, s.customInstructions, context),
+        context = context,
+        formality = s.formality,
+    )
+
+    /** Starts a buffered translation of a stable partial transcript (see [SpeculativeTranslator]). */
+    private suspend fun startSpeculation(text: String, direction: Direction, s: AppSettings, beforeId: Long): Speculation? {
+        val (source, target) = resolveDirection(text, null, direction, s.langA, s.langB)
+        val trId = s.translationProvider
+        val engine = registry.get(trId).translation ?: return null
+        val model = registry.model(s, trId, Capability.TRANSLATION)
+        val request = translationRequest(text, source, target, s, model, recentContext(beforeId, s.contextTurns))
+        val deltas = Channel<TranslationDelta>(Channel.UNLIMITED)
+        val job = scope.launch {
+            try {
+                engine.translate(request).collect { deltas.send(it) }
+                deltas.close()
+            } catch (e: CancellationException) {
+                deltas.cancel()
+                throw e
+            } catch (e: Exception) {
+                deltas.close(e)
+            }
+        }
+        return Speculation(text, source, target, trId, model, engine.isLlm, deltas, job)
+    }
+
     private suspend fun translateAndSpeak(
         id: Long,
         text: String,
@@ -496,6 +576,7 @@ class Interpreter(
         s: AppSettings,
         slot: SpeechQueue.Slot?,
         transcriptAt: Long,
+        speculation: Speculation?,
     ) = coroutineScope {
         val a = s.langA
         val b = s.langB
@@ -508,26 +589,57 @@ class Interpreter(
         val model = registry.model(s, trId, Capability.TRANSLATION)
         val context = recentContext(id, s.contextTurns)
 
+        // A speculative translation is only usable if it was made with exactly the same inputs.
+        val spec = speculation?.takeIf { it.source == source && it.target == target && it.provider == trId && it.model == model }
+        if (speculation != null && spec == null) speculation.cancel()
+        if (spec != null) updateTurn(id) { it.copy(metrics = it.metrics.copy(speculative = true)) }
+
         var spokenTarget: Language? = target
         var statusNote: String? = null
-        val sentences = Channel<String>(Channel.UNLIMITED)
-        val ttsJob = slot?.let { launch { speakSentences(id, sentences, it, s) { spokenTarget ?: b } } }
-
-        val chunker = SentenceChunker(early = s.earlySpeech)
         val translation = StringBuilder()
         var firstTokenAt: Long? = null
+
+        // Speech output: word by word over a WebSocket when the TTS engine supports it, else sentences.
+        val ttsId = s.ttsProvider
+        val streamingTts = if (slot != null && s.streamingTts) {
+            (registry.get(ttsId).tts as? StreamingTextTtsEngine)
+                ?.takeIf { it.supportsTextStreaming(registry.model(s, ttsId, Capability.TTS)) }
+        } else {
+            null
+        }
+        val textStream = streamingTts?.let { Channel<String>(Channel.UNLIMITED) }
+        val fullText = CompletableDeferred<String>()
+        var streamJob: Job? = null
+        fun startStream(language: Language) {
+            if (streamJob != null || streamingTts == null || textStream == null || slot == null) return
+            streamJob = launch { speakStreaming(id, streamingTts, textStream, slot, s, language, fullText) }
+        }
+        target?.let { startStream(it) } // open the socket now: the handshake overlaps the translation
+
+        val sentences = Channel<String>(Channel.UNLIMITED)
+        val sentenceJob = if (slot != null && textStream == null) {
+            launch { speakSentences(id, sentences, slot, s) { spokenTarget ?: b } }
+        } else {
+            null
+        }
+        val chunker = SentenceChunker(early = s.earlySpeech)
 
         suspend fun onText(t: String) {
             if (t.isEmpty()) return
             if (firstTokenAt == null) {
                 val now = System.currentTimeMillis()
                 firstTokenAt = now
-                updateTurn(id) { it.copy(metrics = it.metrics.copy(firstTokenMs = now - transcriptAt)) }
+                updateTurn(id) { it.copy(metrics = it.metrics.copy(firstTokenMs = (now - transcriptAt).coerceAtLeast(0))) }
             }
             translation.append(t)
             val shown = translation.toString().trimStart()
             updateTurn(id) { it.copy(translation = shown) }
-            chunker.push(t).forEach { sentences.send(it) }
+            if (textStream != null) {
+                startStream(spokenTarget ?: b)
+                textStream.send(t)
+            } else {
+                chunker.push(t).forEach { sentences.send(it) }
+            }
         }
 
         fun setTarget(l: Language) {
@@ -536,22 +648,9 @@ class Interpreter(
             updateTurn(id) { it.copy(targetTag = l.tag, sourceTag = src.tag) }
         }
 
-        suspend fun run(e: TranslationEngine, m: String) {
-            val bidirectional = source == null
-            val tagParser = if (bidirectional && e.isLlm) LangTagParser() else null
-            val req = TranslationRequest(
-                text = text,
-                source = source,
-                target = target,
-                languageA = a,
-                languageB = b,
-                bidirectional = bidirectional,
-                model = m,
-                systemPrompt = Prompts.system(source, target, a, b, s.formality, s.glossaryEntries, s.customInstructions, context),
-                context = context,
-                formality = s.formality,
-            )
-            e.translate(req).collect { d ->
+        suspend fun consume(deltas: Flow<TranslationDelta>, isLlm: Boolean) {
+            val tagParser = if (source == null && isLlm) LangTagParser() else null
+            deltas.collect { d ->
                 when (d) {
                     is TranslationDelta.Status -> {
                         statusNote = d.message
@@ -574,7 +673,11 @@ class Interpreter(
         }
 
         try {
-            run(engine, model)
+            if (spec != null) {
+                consume(spec.deltas.receiveAsFlow(), spec.isLlm)
+            } else {
+                consume(engine.translate(translationRequest(text, source, target, s, model, context)), engine.isLlm)
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -583,16 +686,55 @@ class Interpreter(
             if (!canFallback) throw e
             Log.w(TAG, "Translation failed, falling back to on-device", e)
             updateTurn(id) { it.copy(note = "Translated on-device — ${e.userMessage()}") }
-            run(registry.get(ProviderId.ANDROID).translation!!, "mlkit")
+            val onDevice = registry.get(ProviderId.ANDROID).translation!!
+            consume(onDevice.translate(translationRequest(text, source, target, s, "mlkit", context)), onDevice.isLlm)
         }
         statusNote?.let { note -> updateTurn(id) { if (it.note == note) it.copy(note = null) else it } }
         if (spokenTarget == null) spokenTarget = target ?: b
-        chunker.flush()?.let { sentences.send(it) }
+        if (textStream != null) {
+            textStream.close()
+            fullText.complete(translation.toString())
+        } else {
+            chunker.flush()?.let { sentences.send(it) }
+        }
         sentences.close()
         val doneAt = System.currentTimeMillis()
         updateTurn(id) { it.copy(metrics = it.metrics.copy(translateMs = doneAt - transcriptAt)) }
         _state.update { if (isListening) it else it.copy(status = if (slot != null) "Speaking…" else null) }
-        ttsJob?.join()
+        sentenceJob?.join()
+        streamJob?.join()
+    }
+
+    /**
+     * Streams the translation into a text-streaming TTS (ElevenLabs WebSocket) as it is written.
+     * If the stream fails before any audio, the whole translation is spoken sentence by sentence.
+     */
+    private suspend fun speakStreaming(
+        id: Long,
+        engine: StreamingTextTtsEngine,
+        text: ReceiveChannel<String>,
+        slot: SpeechQueue.Slot,
+        s: AppSettings,
+        language: Language,
+        fullText: CompletableDeferred<String>,
+    ) {
+        val ttsId = s.ttsProvider
+        val side = if (language == s.langA) "A" else "B"
+        val request = TtsRequest("", language, registry.model(s, ttsId, Capability.TTS), registry.voice(s, ttsId, side), s.speechRate, null)
+        try {
+            enqueue(engine.synthesizeTextStream(request, text), slot)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Streaming TTS failed, falling back to sentences", e)
+            updateTurn(id) { it.copy(note = "Voice stream unavailable, spoke sentence by sentence — ${e.userMessage()}") }
+            val sentences = Channel<String>(Channel.UNLIMITED)
+            val chunker = SentenceChunker(early = s.earlySpeech)
+            chunker.push(fullText.await()).forEach { sentences.send(it) }
+            chunker.flush()?.let { sentences.send(it) }
+            sentences.close()
+            speakSentences(id, sentences, slot, s) { language }
+        }
     }
 
     private suspend fun speakSentences(

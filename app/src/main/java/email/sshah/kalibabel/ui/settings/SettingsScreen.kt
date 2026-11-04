@@ -30,6 +30,7 @@ import email.sshah.kalibabel.data.AppSettings
 import email.sshah.kalibabel.data.Formality
 import email.sshah.kalibabel.data.ListenMode
 import email.sshah.kalibabel.data.MicSource
+import email.sshah.kalibabel.data.SpeechDetector
 import email.sshah.kalibabel.providers.Capability
 import email.sshah.kalibabel.providers.ProviderId
 import email.sshah.kalibabel.providers.ProviderSpecs
@@ -96,6 +97,12 @@ fun SettingsScreen(container: AppContainer, onBack: () -> Unit, onOpenProviders:
                 value = s.customInstructions,
             ) { v -> update { it.copy(customInstructions = v) } }
             SwitchSetting(
+                "Translate before you finish",
+                "Starts translating as soon as your words stop changing, while the recogniser is still confirming the end " +
+                    "of the sentence. Discarded if the final words differ (costs a few extra tokens).",
+                s.speculativeTranslation,
+            ) { v -> update { it.copy(speculativeTranslation = v) } }
+            SwitchSetting(
                 "Fall back to on-device",
                 "If a cloud provider fails (no signal, rate limit), translate with ML Kit and speak with the system voice.",
                 s.fallbackToOnDevice,
@@ -103,6 +110,12 @@ fun SettingsScreen(container: AppContainer, onBack: () -> Unit, onOpenProviders:
 
             PipelineSection(container, s, Capability.TTS, "Speech output", onDialog = { dialog = it })
             SwitchSetting("Speak translations automatically", null, s.autoSpeak) { v -> update { it.copy(autoSpeak = v) } }
+            SwitchSetting(
+                "Stream words into the voice",
+                "ElevenLabs: sends the translation word by word over a WebSocket, so speech starts before the sentence " +
+                    "is finished. Off = whole sentences.",
+                s.streamingTts,
+            ) { v -> update { it.copy(streamingTts = v) } }
             SwitchSetting(
                 "Start speaking early",
                 "Begin speaking at the first clause instead of waiting for a full sentence (lowest latency).",
@@ -128,6 +141,13 @@ fun SettingsScreen(container: AppContainer, onBack: () -> Unit, onOpenProviders:
             SegmentedSetting("Microphone", MicSource.entries, s.micSource, { it.label.substringBefore(" (") }, description = s.micSource.label) { v ->
                 update { it.copy(micSource = v) }
             }
+            SegmentedSetting(
+                "Speech detector",
+                SpeechDetector.entries,
+                s.speechDetector,
+                { it.label },
+                description = s.speechDetector.description,
+            ) { v -> update { it.copy(speechDetector = v) } }
             SwitchSetting("Noise suppression", "Use the device's noise suppressor when available.", s.noiseSuppression) { v ->
                 update { it.copy(noiseSuppression = v) }
             }

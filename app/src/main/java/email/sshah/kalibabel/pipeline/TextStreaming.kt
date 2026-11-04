@@ -92,6 +92,46 @@ class SentenceChunker(
 }
 
 /**
+ * Groups streaming text deltas into word-complete pieces for text-streaming TTS. A piece always ends
+ * at a word boundary (and with a single space, as ElevenLabs expects), so a word is never split
+ * across messages; scripts without spaces (CJK, Thai…) are released at punctuation or by length.
+ */
+class SpeakableTextBuffer(private val maxUnspacedChars: Int = 24) {
+    private val buffer = StringBuilder()
+
+    fun push(delta: String): String? {
+        buffer.append(delta)
+        val s = buffer
+        val lastSpace = s.indexOfLast { it.isWhitespace() }
+        val lastStop = s.indexOfLast { it in STOPS }
+        val cut = when {
+            lastSpace > 0 -> lastSpace + 1
+            lastStop >= 0 -> lastStop + 1
+            s.length >= maxUnspacedChars && s.none { it.isWhitespace() } && s.any { it.code > 0x2E80 } -> s.length
+            else -> return null
+        }
+        val piece = s.substring(0, cut)
+        s.delete(0, cut)
+        return normalize(piece)
+    }
+
+    fun flush(): String? {
+        val piece = buffer.toString()
+        buffer.setLength(0)
+        return if (piece.isBlank()) null else normalize(piece)
+    }
+
+    private fun normalize(piece: String): String? {
+        val trimmed = piece.trimEnd()
+        return if (trimmed.isBlank()) null else "$trimmed "
+    }
+
+    private companion object {
+        val STOPS = setOf('。', '，', '、', '！', '？', '；', '：', '．', '…')
+    }
+}
+
+/**
  * In bidirectional mode the LLM starts its reply with `[xx]` naming the language it translated
  * into. This strips that tag from the stream and reports it.
  */

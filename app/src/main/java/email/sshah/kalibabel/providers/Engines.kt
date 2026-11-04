@@ -165,3 +165,18 @@ sealed interface TtsOutput {
 interface TtsEngine {
     suspend fun synthesize(request: TtsRequest): TtsOutput
 }
+
+/**
+ * TTS that accepts text incrementally — word by word as the translation streams in — and returns
+ * one continuous audio stream, so speech starts before a sentence is complete.
+ */
+interface StreamingTextTtsEngine {
+    fun supportsTextStreaming(model: String): Boolean
+
+    /**
+     * Opens the stream immediately (so the connection is ready before the first word); text sent
+     * to [text] is spoken as it arrives, and closing [text] finishes the utterance.
+     * [request].text is ignored.
+     */
+    fun synthesizeTextStream(request: TtsRequest, text: ReceiveChannel<String>): TtsOutput.Pcm
+}

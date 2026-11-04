@@ -21,6 +21,12 @@ enum class MicSource(val label: String) {
     MIC("Raw microphone"),
 }
 
+@Serializable
+enum class SpeechDetector(val label: String, val description: String) {
+    NOISE_ROBUST("Noise-robust", "Spectral detector: ignores steady background noise (traffic, fans, cafés)."),
+    BASIC("Basic", "Volume-based detector: fine in quiet rooms, can get stuck in loud places."),
+}
+
 /** Per-provider user preferences. API keys are NOT stored here (see [SecureKeyStore]). */
 @Serializable
 data class ProviderPrefs(
@@ -50,6 +56,7 @@ data class AppSettings(
     val silenceMs: Int = 700,
     val preferStreamingStt: Boolean = true,
     val micSource: MicSource = MicSource.VOICE_RECOGNITION,
+    val speechDetector: SpeechDetector = SpeechDetector.NOISE_ROBUST,
     val noiseSuppression: Boolean = true,
     val pauseMicWhileSpeaking: Boolean = true,
 
@@ -59,11 +66,13 @@ data class AppSettings(
     val glossary: String = "",
     val customInstructions: String = "",
     val fallbackToOnDevice: Boolean = true,
+    val speculativeTranslation: Boolean = true,
 
     // Speech output
     val autoSpeak: Boolean = true,
     val speechRate: Float = 1.0f,
     val earlySpeech: Boolean = true,
+    val streamingTts: Boolean = true,
 
     // Display
     val showLatency: Boolean = true,
