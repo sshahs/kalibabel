@@ -2,9 +2,11 @@ package email.sshah.kalibabel.net
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flow
@@ -27,6 +29,7 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
+import java.io.EOFException
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
@@ -168,6 +171,10 @@ sealed interface WsMessage {
 /**
  * Opens a WebSocket and exposes it as a flow of messages. [onOpen] receives the socket so the
  * caller can start sending. The flow completes when the server closes the socket.
+ *
+ * Once the caller has closed the socket normally (code 1000), a connection that then drops
+ * without a close frame still completes the flow normally: some servers just hang up after
+ * their final message, and everything the caller asked for has arrived by then.
  */
 fun OkHttpClient.webSocket(
     request: Request,
@@ -175,9 +182,14 @@ fun OkHttpClient.webSocket(
     onOpen: (WebSocket) -> Unit,
 ): Flow<WsMessage> = callbackFlow {
     val ws = newWebSocket(request, object : WebSocketListener() {
+        @Volatile
+        private var socket: CloseTrackingWebSocket? = null
+
         override fun onOpen(webSocket: WebSocket, response: Response) {
+            val tracked = CloseTrackingWebSocket(webSocket)
+            socket = tracked
             trySend(WsMessage.Open)
-            onOpen(webSocket)
+            onOpen(tracked)
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
@@ -202,14 +214,31 @@ fun OkHttpClient.webSocket(
         }
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+            if (response == null && socket?.closedNormally == true) {
+                close() // we were done anyway; the server hung up instead of answering our close
+                return
+            }
             val body = runCatching { response?.body?.string() }.getOrNull()
+            val reason = t.message ?: if (t is EOFException) "connection dropped by the server" else "WebSocket failed"
             val err = if (response != null) {
-                ApiException(provider, response.code, body?.let { extractErrorMessage(it) } ?: response.message.ifBlank { t.message ?: "WebSocket failed" })
+                ApiException(provider, response.code, body?.let { extractErrorMessage(it) } ?: response.message.ifBlank { reason })
             } else {
-                IOException("$provider: ${t.message ?: "WebSocket failed"}", t)
+                IOException("$provider: $reason", t)
             }
             close(err)
         }
     })
     awaitClose { ws.cancel() }
+}.buffer(Channel.UNLIMITED) // never drop audio or control messages when the collector is busy
+
+/** Remembers whether the caller closed the socket normally (see [webSocket]). */
+private class CloseTrackingWebSocket(private val delegate: WebSocket) : WebSocket by delegate {
+    @Volatile
+    var closedNormally = false
+        private set
+
+    override fun close(code: Int, reason: String?): Boolean {
+        if (code == 1000) closedNormally = true
+        return delegate.close(code, reason)
+    }
 }

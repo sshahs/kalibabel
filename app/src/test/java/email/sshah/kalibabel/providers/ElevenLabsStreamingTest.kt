@@ -7,6 +7,7 @@ import email.sshah.kalibabel.net.ApiException
 import email.sshah.kalibabel.net.AppJson
 import email.sshah.kalibabel.net.Http
 import email.sshah.kalibabel.net.arr
+import email.sshah.kalibabel.net.hangUpOnceSent
 import email.sshah.kalibabel.net.obj
 import email.sshah.kalibabel.net.str
 import email.sshah.kalibabel.providers.impl.ElevenLabsProvider
@@ -30,6 +31,7 @@ import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.util.Base64
 import java.util.concurrent.CopyOnWriteArrayList
 
@@ -55,8 +57,12 @@ class ElevenLabsStreamingTest {
         return ElevenLabsProvider(ProviderContext(ContextWrapper(null), Http.createClient(), spec, "test-key", prefs))
     }
 
-    /** Fake ElevenLabs: replies with one audio chunk per text message, then isFinal on close. */
-    private fun fakeTts() = MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
+    /**
+     * Fake ElevenLabs: replies with one audio chunk per text message, then isFinal on close.
+     * [hangUp] drops the connection without a close frame after isFinal, as the real one may;
+     * [dropAfter] drops it mid-reply after that many audio chunks.
+     */
+    private fun fakeTts(hangUp: Boolean = false, dropAfter: Int? = null) = MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
         private var next = 0
 
         override fun onMessage(webSocket: WebSocket, text: String) {
@@ -66,13 +72,14 @@ class ElevenLabsStreamingTest {
                 t == "" -> {
                     while (next < chunks.size) sendAudio(webSocket)
                     webSocket.send("""{"isFinal":true}""")
-                    webSocket.close(1000, null)
+                    if (hangUp) webSocket.hangUpOnceSent() else webSocket.close(1000, null)
                 }
                 t != null && t.isNotBlank() && next < chunks.size -> sendAudio(webSocket)
             }
         }
 
         private fun sendAudio(ws: WebSocket) {
+            if (next == dropAfter) ws.hangUpOnceSent()
             ws.send("""{"audio":"${Base64.getEncoder().encodeToString(chunks[next++])}","isFinal":null}""")
         }
 
@@ -114,6 +121,42 @@ class ElevenLabsStreamingTest {
         assertTrue("word-complete pieces ending in a space: $pieces", pieces.all { it.endsWith(" ") })
         assertEquals("Hola, ¿qué tal? Muy bien.", pieces.joinToString("").trim())
         assertEquals("", AppJson.parseToJsonElement(received.last()).str("text"))
+    }
+
+    private suspend fun speak(output: TtsOutput.Pcm, text: Channel<String>): ByteArray {
+        val audio = ByteArrayOutputStream()
+        withTimeout(10_000) {
+            text.send("Hola, ¿qué tal? ")
+            text.send("Muy bien. ")
+            text.close()
+            output.chunks.collect { audio.write(it) }
+        }
+        return audio.toByteArray()
+    }
+
+    @Test
+    fun hangUpAfterFinalAudioIsNotAnError() = runBlocking {
+        server.enqueue(fakeTts(hangUp = true))
+        val text = Channel<String>(Channel.UNLIMITED)
+        val output = provider().tts.synthesizeTextStream(
+            TtsRequest("", Languages.byTag("es-ES"), "eleven_flash_v2_5", null, 1f, null), text,
+        )
+        assertArrayEquals(chunks.reduce { a, b -> a + b }, speak(output, text))
+    }
+
+    @Test
+    fun dropMidReplySurfacesAsIoException() = runBlocking {
+        server.enqueue(fakeTts(dropAfter = 1))
+        val text = Channel<String>(Channel.UNLIMITED)
+        val output = provider().tts.synthesizeTextStream(
+            TtsRequest("", Languages.byTag("es-ES"), "eleven_flash_v2_5", null, 1f, null), text,
+        )
+        try {
+            speak(output, text)
+            fail("expected an IOException")
+        } catch (e: IOException) {
+            assertTrue(e.message!!, e.message!!.startsWith("ElevenLabs: "))
+        }
     }
 
     @Test

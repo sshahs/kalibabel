@@ -32,10 +32,14 @@ import email.sshah.kalibabel.providers.TtsOutput
 import email.sshah.kalibabel.providers.TtsRequest
 import email.sshah.kalibabel.providers.VoiceInfo
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -115,16 +119,19 @@ class ElevenLabsProvider(ctx: ProviderContext) : Provider(ctx) {
                     buffer.flush()?.let { ws.send(streamText(it)) }
                     ws.send(STREAM_CLOSE) // generates whatever is buffered, then isFinal
                 }
-                ctx.http.webSocket(req, name) { openSocket = it; socket.complete(it) }.collect { msg ->
-                    if (msg !is WsMessage.Text) return@collect
-                    val json = runCatching { AppJson.parseToJsonElement(msg.text) }.getOrNull() ?: return@collect
+                // Stop reading at isFinal: all audio is in, and the server may hang up abruptly after it.
+                ctx.http.webSocket(req, name) { openSocket = it; socket.complete(it) }.takeWhile { msg ->
+                    if (msg !is WsMessage.Text) return@takeWhile true
+                    val json = runCatching { AppJson.parseToJsonElement(msg.text) }.getOrNull() ?: return@takeWhile true
                     json.str("audio")?.takeIf { it.isNotEmpty() }?.let { send(Base64.getDecoder().decode(it)) }
-                    if (json.bool("isFinal") == true) openSocket?.close(1000, null)
                     val error = json.str("error") ?: json.obj("error").str("message")
                     if (error != null) throw ApiException(name, json.int("code") ?: 400, json.str("message") ?: error)
-                }
+                    val done = json.bool("isFinal") == true
+                    if (done) openSocket?.close(1000, null)
+                    !done
+                }.collect()
                 sender.cancel()
-            }
+            }.flowOn(Dispatchers.Default) // JSON + Base64 decoding stays off the main thread
             return TtsOutput.Pcm(24_000, audio)
         }
     }

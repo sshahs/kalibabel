@@ -38,18 +38,29 @@ sealed interface SpeechItem {
     class SelfPlayed(val play: suspend () -> Unit) : SpeechItem
 }
 
+/** What [SpeechQueue] plays through; [AudioPlayer] in the app. */
+interface SpeechOutput {
+    /** Plays one item; [onFirstAudio] fires when the first samples reach the audio device. */
+    suspend fun play(item: SpeechItem, onFirstAudio: () -> Unit)
+
+    /** Waits until everything written so far has been heard. */
+    suspend fun drain()
+
+    /** Stops playback immediately. */
+    fun stop()
+}
+
 /**
  * Low-latency audio output. PCM is written straight into a streaming [AudioTrack] as network
  * chunks arrive, so playback starts with the first ~100 ms of audio instead of the whole file.
  */
-class AudioPlayer(private val context: Context) {
+class AudioPlayer(private val context: Context) : SpeechOutput {
     private var track: AudioTrack? = null
     private var trackRate = 0
     private var framesWritten = 0L
     private var mediaPlayer: MediaPlayer? = null
 
-    /** Plays one item; [onFirstAudio] fires when the first samples reach the audio device. */
-    suspend fun play(item: SpeechItem, onFirstAudio: () -> Unit) {
+    override suspend fun play(item: SpeechItem, onFirstAudio: () -> Unit) {
         when (item) {
             is SpeechItem.Pcm -> playPcm(item.sampleRate, item.data, onFirstAudio)
             is SpeechItem.Wav -> playWav(item.data, onFirstAudio)
@@ -185,7 +196,7 @@ class AudioPlayer(private val context: Context) {
     }
 
     /** Waits until everything written to the track has actually been played. */
-    suspend fun drain() {
+    override suspend fun drain() {
         val t = track ?: return
         val deadline = System.currentTimeMillis() + 30_000
         while (coroutineContext.isActive && System.currentTimeMillis() < deadline) {
@@ -196,7 +207,7 @@ class AudioPlayer(private val context: Context) {
     }
 
     /** Immediately silences everything. */
-    fun stop() {
+    override fun stop() {
         track?.let {
             runCatching {
                 it.pause()
@@ -235,7 +246,7 @@ class AudioPlayer(private val context: Context) {
  * [stopAll] mutes everything queued so far (downloads are aborted) without disturbing the
  * producers, so in-flight translations still finish on screen.
  */
-class SpeechQueue(private val scope: CoroutineScope, private val player: AudioPlayer) {
+class SpeechQueue(private val scope: CoroutineScope, private val player: SpeechOutput) {
     class Slot(
         val turnId: Long,
         val onFirstAudio: () -> Unit,
@@ -293,11 +304,19 @@ class SpeechQueue(private val scope: CoroutineScope, private val player: AudioPl
                     }
                     _speakingTurn.value = slot.turnId
                     val job = launch {
-                        player.play(item) {
-                            if (first) {
-                                first = false
-                                slot.onFirstAudio()
+                        // A failure must stay inside this item: if it escaped the child it would
+                        // cancel consume() and crash the app (e.g. a TTS socket dropping mid-reply).
+                        try {
+                            player.play(item) {
+                                if (first) {
+                                    first = false
+                                    slot.onFirstAudio()
+                                }
                             }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Playback for turn ${slot.turnId} interrupted", e)
                         }
                     }
                     currentPlay = job
@@ -311,7 +330,7 @@ class SpeechQueue(private val scope: CoroutineScope, private val player: AudioPl
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.w("SpeechQueue", "Speech for turn ${slot.turnId} failed", e)
+                Log.w(TAG, "Speech for turn ${slot.turnId} failed", e)
             } finally {
                 pending.remove(slot)
                 slot.onFinished()
@@ -321,6 +340,10 @@ class SpeechQueue(private val scope: CoroutineScope, private val player: AudioPl
                 if (pending.isEmpty()) _speakingTurn.value = null
             }
         }
+    }
+
+    private companion object {
+        const val TAG = "SpeechQueue"
     }
 
     private fun discard(item: SpeechItem) {

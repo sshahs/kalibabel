@@ -774,9 +774,9 @@ class Interpreter(
     private suspend fun enqueue(output: TtsOutput, slot: SpeechQueue.Slot) {
         when (output) {
             is TtsOutput.SelfPlayed -> slot.items.send(SpeechItem.SelfPlayed(output.play))
-            is TtsOutput.Pcm -> pump(output.chunks) { slot.items.send(SpeechItem.Pcm(output.sampleRate, it)) }
-            is TtsOutput.Wav -> pump(output.chunks) { slot.items.send(SpeechItem.Wav(it)) }
-            is TtsOutput.Encoded -> pump(output.bytes) { slot.items.send(SpeechItem.Encoded(output.mimeType, it)) }
+            is TtsOutput.Pcm -> pump(slot, output.chunks) { slot.items.send(SpeechItem.Pcm(output.sampleRate, it)) }
+            is TtsOutput.Wav -> pump(slot, output.chunks) { slot.items.send(SpeechItem.Wav(it)) }
+            is TtsOutput.Encoded -> pump(slot, output.bytes) { slot.items.send(SpeechItem.Encoded(output.mimeType, it)) }
         }
     }
 
@@ -784,7 +784,7 @@ class Interpreter(
      * Starts the download; the item is only queued once the first bytes arrived, so a failing
      * request can still fall back to another voice for the same sentence.
      */
-    private suspend fun pump(source: Flow<ByteArray>, register: suspend (ReceiveChannel<ByteArray>) -> Unit) {
+    private suspend fun pump(slot: SpeechQueue.Slot, source: Flow<ByteArray>, register: suspend (ReceiveChannel<ByteArray>) -> Unit) {
         val channel = Channel<ByteArray>(Channel.UNLIMITED)
         var registered = false
         try {
@@ -806,6 +806,7 @@ class Interpreter(
             channel.close(e)
             if (!registered) throw e
             Log.w(TAG, "Audio stream interrupted", e)
+            updateTurn(slot.turnId) { it.copy(note = "Speech was cut off — ${e.userMessage()}") }
         }
     }
 
