@@ -7,7 +7,7 @@
 #
 # Usage: gitea-release.sh <file>...
 # Env:   GITEA_TOKEN, SERVER_URL, REPOSITORY (owner/repo), TAG
-#        optional: TARGET_SHA, NOTES_FILE (markdown release notes), DRAFT=true
+#        optional: TITLE, TARGET_SHA, NOTES_FILE (markdown release notes), DRAFT=true
 set -euo pipefail
 
 : "${GITEA_TOKEN:?GITEA_TOKEN is required}" "${SERVER_URL:?SERVER_URL is required}"
@@ -57,8 +57,8 @@ notes="KaliBabel ${TAG}"
 if [ -n "${NOTES_FILE:-}" ] && [ -f "$NOTES_FILE" ]; then notes="$(cat "$NOTES_FILE")"; fi
 draft=false
 [ "${DRAFT:-}" = "true" ] && draft=true
-payload="$(node -e 'const [tag,notes,pre,sha,draft]=process.argv.slice(1);const o={tag_name:tag,name:"KaliBabel "+tag,body:notes,draft:draft==="true",prerelease:pre==="true"};if(sha)o.target_commitish=sha;process.stdout.write(JSON.stringify(o))' \
-  "$TAG" "$notes" "$prerelease" "${TARGET_SHA:-}" "$draft")"
+payload="$(node -e 'const [tag,notes,pre,sha,draft,title]=process.argv.slice(1);const o={tag_name:tag,name:title||("KaliBabel "+tag),body:notes,draft:draft==="true",prerelease:pre==="true"};if(sha)o.target_commitish=sha;process.stdout.write(JSON.stringify(o))' \
+  "$TAG" "$notes" "$prerelease" "${TARGET_SHA:-}" "$draft" "${TITLE:-}")"
 
 api GET "/releases/tags/${TAG}"
 case "$HTTP_CODE" in

@@ -13,17 +13,15 @@
 # the pull mirror (https://tig.sshah.email/Cheeba/kalibabel) syncs it, Gitea fires a push event for the
 # tag, this workflow builds and the APKs are attached to the release of that tag on the mirror repo.
 #
-# Like KaliScriber: every commit the mirror sync brings is built (APKs as run artifacts), and a
-# v* tag additionally publishes a Gitea release. GitHub's build-<N> prerelease tags are not built
-# here — their commits are built from the branch push already. Requires Gitea >= 1.21.5 (older versions wipe
-# releases of pull mirrors on every sync).
-name: Android CI
-
+# Every update arrives from GitHub as a tag: each push to main gets a build-<N> prerelease tag and
+# each official release a v* tag. When the mirror syncs one, this workflow builds that commit and
+# publishes the matching Gitea release (prerelease for build-*, full release for v*) — one run per
+# update, and every run ends in a release. Plain branch syncs are not built separately: their
+# build-<N> tag follows and builds the same commit. GitHub asks Gitea to sync right after it
+# publishes (GITEA_SYNC_TOKEN secret on GitHub), otherwise the mirror interval picks it up.
 on:
   push:
-    branches: ["**"]
-    tags: ["v*"]
-  pull_request:
+    tags: ["v*", "build-*"]
   workflow_dispatch:
 
 concurrency:
@@ -110,6 +108,7 @@ jobs:
 
       # Same key on both forges, or updates stop installing: never publish anything else.
       - name: Check signing certificate
+        id: cert
         run: scripts/ci/check-signing-cert.sh dist/*-release.apk
 
       # Gitea identifies as GHES, which upload-artifact@v4 refuses; v3 works with Gitea's artifact API.
@@ -129,13 +128,13 @@ jobs:
           if-no-files-found: ignore
 
       - name: Write release notes
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/') && steps.cert.outputs.match == 'true'
         env:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_number }}
         run: scripts/ci/release-notes.sh
 
       - name: Publish Gitea release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/') && steps.cert.outputs.match == 'true'
         env:
           GITEA_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
           SERVER_URL: ${{ github.server_url }}
@@ -143,4 +142,10 @@ jobs:
           TARGET_SHA: ${{ github.sha }}
           NOTES_FILE: dist/RELEASE_NOTES.md
           DRAFT: ${{ vars.RELEASE_DRAFT }}
-        run: TAG="${GITHUB_REF#refs/tags/}" scripts/ci/gitea-release.sh dist/*-release.apk dist/SHA256SUMS.txt
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          case "$TAG" in
+            build-*) TITLE="KaliBabel ${KALIBABEL_VERSION_NAME} (build ${TAG#build-})" ;;
+            *) TITLE="KaliBabel ${TAG}" ;;
+          esac
+          TAG="$TAG" TITLE="$TITLE" scripts/ci/gitea-release.sh dist/*-release.apk dist/SHA256SUMS.txt

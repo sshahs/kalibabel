@@ -145,13 +145,14 @@ are signed with the debug key.
 
 There are two workflows that do the same job using the same scripts in `scripts/ci/`:
 
-- `.gitea/workflows/android.yml` runs on the Gitea mirror for **every commit a sync brings** (APKs as
-  run artifacts), and publishes a **Gitea release** when the sync brings a `v*` tag. This is the same
-  setup as KaliScriber.
+- `.gitea/workflows/android.yml` runs on the Gitea mirror for **every tag a sync brings from GitHub**,
+  and publishes the matching **Gitea release**: a prerelease for `build-<N>` (every push to `main`), and
+  a full release for `v*`. That's one run per update, and every run ends in a release. Plain branch
+  syncs aren't built on their own, because the commit's `build-<N>` tag follows and builds it.
 - `.github/workflows/android.yml` runs on GitHub for every push and pull request. Every push to `main`
   is published as a **prerelease `build-<N>`**, so the newest build is always downloadable. Official
-  `v*` releases are a deliberate step (below). Gitea doesn't build the `build-<N>` tags, because their
-  commits were already built from the branch push.
+  `v*` releases are a deliberate step (below). After publishing, GitHub asks Gitea to sync straight
+  away if the `GITEA_SYNC_TOKEN` secret is set. Without it, the mirror interval picks the tag up.
 
 Each forge only reads its own folder. `versionCode` is the number of commits on `HEAD`, so a build of
 a given commit gets the same code on both forges, and newer builds can always update older installs.
@@ -243,10 +244,12 @@ Set the same values in both places:
 | `KEY_ALIAS` | for `v*` tags | The key alias (`kalibabel` if you use the script below) |
 | `KEY_PASSWORD` | for `v*` tags | The key password. For PKCS12 keystores this is the same as `KEYSTORE_PASSWORD` |
 | `RELEASE_TOKEN` | no | A personal access token with `write:repository`. Only needed if the automatic Actions token can't create releases on your instance |
+| `GITEA_SYNC_TOKEN` (GitHub only) | no | A Gitea access token with `write:repository` on the mirror. GitHub uses it to make Gitea sync the moment a build or release is published, so Gitea's release follows within minutes with no manual sync |
 
 | Variable | Default | Effect |
 |---|---|---|
 | `RELEASE_DRAFT` | unset | Set to `true` to publish releases as drafts, so you can review them before they go public |
+| `GITEA_REPO_API` (GitHub only) | `https://tig.sshah.email/api/v1/repos/Cheeba/kalibabel` | The Gitea API URL of the mirror that `GITEA_SYNC_TOKEN` syncs |
 | `ALLOW_DEBUG_SIGNED_RELEASE` | unset | Set to `true` to let tag builds run without signing secrets (testing only) |
 
 **Creating the signing key and secrets.** Run this on your own machine (it needs a JDK), so the

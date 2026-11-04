@@ -140,6 +140,13 @@ jobs:
           scripts/ci/release-notes.sh >/dev/null
           NOTES_FILE=dist/RELEASE_NOTES.md scripts/ci/github-release.sh dist/*-release.apk dist/SHA256SUMS.txt
 
+      - name: Ask Gitea to sync the new build
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.cert.outputs.match == 'true'
+        env:
+          GITEA_SYNC_TOKEN: ${{ secrets.GITEA_SYNC_TOKEN }}
+          GITEA_REPO_API: ${{ vars.GITEA_REPO_API || 'https://tig.sshah.email/api/v1/repos/Cheeba/kalibabel' }}
+        run: scripts/ci/trigger-gitea-sync.sh
+
       - name: Write release notes
         if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
         env:
@@ -157,3 +164,10 @@ jobs:
           NOTES_FILE: dist/RELEASE_NOTES.md
           DRAFT: ${{ vars.RELEASE_DRAFT }}
         run: scripts/ci/github-release.sh dist/*-release.apk dist/SHA256SUMS.txt
+
+      - name: Ask Gitea to sync the new release
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
+        env:
+          GITEA_SYNC_TOKEN: ${{ secrets.GITEA_SYNC_TOKEN }}
+          GITEA_REPO_API: ${{ vars.GITEA_REPO_API || 'https://tig.sshah.email/api/v1/repos/Cheeba/kalibabel' }}
+        run: scripts/ci/trigger-gitea-sync.sh

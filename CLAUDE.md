@@ -19,12 +19,13 @@
 - Retrace release crashes: R8 output is deterministic, so rebuild the release tag's commit and use
   `app/build/outputs/mapping/release/mapping.txt`.
 - UI render tests (`app/src/test/.../ui/ScreensRenderTest.kt`) write screenshots to `app/build/screenshots/`.
-- CI mirrors the KaliScriber repo's setup. `.gitea/workflows/android.yml` runs on the Gitea pull mirror
-  https://tig.sshah.email/Cheeba/kalibabel via act_runner for every synced branch commit (artifacts) and `v*` tags
-  (Gitea release via `scripts/ci/gitea-release.sh`). GitHub ignores it. Never create tags/releases only on Gitea
-  (mirror sync prunes them). Gitea's manual "Run workflow" only builds (no release).
-- GitHub publishes a `build-<N>` prerelease for every push to main (only if the APKs match the pinned cert);
-  Gitea ignores `build-*` tags. Optional hand-written notes: `.github/release-notes/vX.Y.Z.md`.
+- CI: `.gitea/workflows/android.yml` runs on the Gitea pull mirror https://tig.sshah.email/Cheeba/kalibabel via
+  act_runner for the tags GitHub creates — `build-*` (Gitea prerelease) and `v*` (Gitea release) via
+  `scripts/ci/gitea-release.sh` — one run per update, every run publishes. Branch syncs are not built separately.
+  GitHub ignores it. Never create tags/releases only on Gitea (mirror sync prunes them). Manual "Run workflow" only builds.
+- GitHub publishes a `build-<N>` prerelease for every push to main (only if the APKs match the pinned cert), then
+  `scripts/ci/trigger-gitea-sync.sh` pokes Gitea's mirror-sync API if the `GITEA_SYNC_TOKEN` secret exists (else the
+  mirror interval). Optional hand-written notes: `.github/release-notes/vX.Y.Z.md`.
 - CI sets `KALIBABEL_MAVEN_MIRROR` (Google's Maven Central mirror) which `settings.gradle.kts` adds before
   mavenCentral(); self-hosted runners get HTTP 429 from Maven Central on large artifacts. Unset locally.
 - Robolectric runs offline: its android-all jar is a Gradle dependency (`robolectricAndroidAll` in libs.versions.toml, must
