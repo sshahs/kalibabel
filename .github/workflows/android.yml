@@ -4,6 +4,10 @@
 # Secrets (repo Settings → Secrets and variables → Actions):
 #   KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD – release signing (required for v* tags)
 # Variables (optional): RELEASE_DRAFT=true, ALLOW_DEBUG_SIGNED_RELEASE=true
+#
+# Releasing: push a `v*` tag, or Actions → Android CI → Run workflow (branch main) with a release tag.
+# A manual release builds first and only pushes the tag (as github-actions[bot]) once everything
+# passed, then publishes the GitHub release. The Gitea mirror picks the tag up on its next sync.
 name: Android CI
 
 on:
@@ -12,9 +16,14 @@ on:
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to create and publish from main, e.g. v0.2.0 (leave empty for a plain build)"
+        required: false
+        default: ""
 
 concurrency:
-  group: android-${{ github.ref }}
+  group: android-${{ github.ref }}-${{ inputs.release_tag }}
   cancel-in-progress: true
 
 permissions:
@@ -34,6 +43,26 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Prepare manual release
+        if: inputs.release_tag != ''
+        env:
+          TAG: ${{ inputs.release_tag }}
+        run: |
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+            echo "::error::release_tag must look like v1.2.3 or v1.2.3-beta1 (got '$TAG')"; exit 1
+          fi
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::Manual releases must be run on main (got $GITHUB_REF)"; exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then
+            echo "::error::Tag $TAG already exists; push a new version instead"; exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "KaliBabel $TAG"   # local only until the build has passed
+          echo "RELEASE_REF=refs/tags/$TAG" >> "$GITHUB_ENV"
+          echo "Preparing release $TAG at $(git rev-parse --short HEAD)"
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -88,11 +117,15 @@ jobs:
           if-no-files-found: ignore
 
       - name: Write release notes
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
         run: scripts/ci/release-notes.sh
 
+      - name: Push release tag
+        if: inputs.release_tag != ''
+        run: git push origin "refs/tags/${{ inputs.release_tag }}"
+
       - name: Publish GitHub release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
         env:
           GH_TOKEN: ${{ github.token }}
           NOTES_FILE: dist/RELEASE_NOTES.md

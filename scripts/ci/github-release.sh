@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# Publishes files to the GitHub release for the tag in $GITHUB_REF using the gh CLI.
+# Publishes files to the GitHub release for the tag in $RELEASE_REF / $GITHUB_REF using the gh CLI.
 # Re-running is safe: notes are refreshed and same-named assets are replaced (--clobber).
 # Env: GH_TOKEN, GITHUB_REPOSITORY; optional NOTES_FILE, DRAFT=true
 set -euo pipefail
 : "${GH_TOKEN:?GH_TOKEN is required}" "${GITHUB_REPOSITORY:?}"
 [ "$#" -gt 0 ] || { echo "::error::no files to upload"; exit 1; }
 
-tag="${GITHUB_REF#refs/tags/}"
+ref="${RELEASE_REF:-$GITHUB_REF}"
+tag="${ref#refs/tags/}"
 notes="${NOTES_FILE:-}"
 flags=()
 case "$tag" in *-*) flags+=(--prerelease) ;; esac

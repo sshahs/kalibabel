@@ -21,6 +21,10 @@
 - GitHub CI: `.github/workflows/android.yml` does the same build and publishes GitHub Releases. Keep both workflows in
   sync by putting logic in `scripts/ci/*.sh` (version.sh, decode-keystore.sh, collect-outputs.sh, release-notes.sh).
   versionCode = `git rev-list --count HEAD` (identical on both forges) — workflows must check out with fetch-depth: 0.
+- Cutting a release from a Claude session: tag pushes from the session are blocked (HTTP 403), so trigger
+  `.github/workflows/android.yml` via workflow_dispatch on `main` with input `release_tag=vX.Y.Z` (GitHub MCP
+  `actions_run_trigger`). It builds/signs, then pushes the tag and publishes the GitHub release; the Gitea mirror
+  builds its own release after its next sync.
 - In-app releases link: `BuildConfig.RELEASES_URL` (app/build.gradle.kts).
 - Release signing secrets (Gitea repo → Settings → Actions → Secrets): `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`,
   `KEY_ALIAS`, `KEY_PASSWORD` (+ optional `RELEASE_TOKEN`); optional variables `RELEASE_DRAFT`, `ALLOW_DEBUG_SIGNED_RELEASE`.

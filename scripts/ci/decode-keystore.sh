@@ -5,11 +5,12 @@
 set -euo pipefail
 
 is_release=false
-case "${GITHUB_REF:-}" in refs/tags/v*) is_release=true ;; esac
+ref="${RELEASE_REF:-${GITHUB_REF:-}}"
+case "$ref" in refs/tags/v*) is_release=true ;; esac
 
 if [ -z "${KEYSTORE_BASE64:-}" ]; then
   if $is_release && [ "${ALLOW_DEBUG_SIGNED_RELEASE:-}" != "true" ]; then
-    echo "::error::Release tag ${GITHUB_REF#refs/tags/} needs the KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS and KEY_PASSWORD secrets (create them with scripts/release-keystore.sh)."
+    echo "::error::Release tag ${ref#refs/tags/} needs the KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS and KEY_PASSWORD secrets (create them with scripts/release-keystore.sh)."
     exit 1
   fi
   echo "::warning::No KEYSTORE_BASE64 secret: release APKs are signed with the debug key."

@@ -12,8 +12,9 @@ if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
 fi
 
 code="$(git rev-list --count HEAD)"
-case "${GITHUB_REF:-}" in
-  refs/tags/v*) name="${GITHUB_REF#refs/tags/v}" ;;
+ref="${RELEASE_REF:-${GITHUB_REF:-}}"
+case "$ref" in
+  refs/tags/v*) name="${ref#refs/tags/v}" ;;
   *)
     described="$(git describe --tags --match 'v[0-9]*' 2>/dev/null || true)"
     if [ -n "$described" ]; then

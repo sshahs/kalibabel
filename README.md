@@ -150,12 +150,20 @@ On every push and pull request, each workflow:
 ### Publishing a release
 
 `https://tig.sshah.email/Cheeba/kalibabel` is a pull mirror of GitHub, so releases start from a
-**tag pushed to GitHub**:
+**tag on GitHub**. There are two ways to create one:
 
-```bash
-git tag -a v0.2.0 -m "KaliBabel 0.2.0"
-git push origin v0.2.0
-```
+- **From the browser:** go to GitHub → *Actions → Android CI → Run workflow*, keep the branch as `main`,
+  and enter a release tag such as `v0.2.0`. The run builds, tests and signs first. Only if all of that
+  passes does it push the tag (as `github-actions[bot]`) and publish the GitHub release. If anything
+  fails, no tag is created.
+- **From the command line:**
+
+  ```bash
+  git tag -a v0.2.0 -m "KaliBabel 0.2.0"
+  git push origin v0.2.0
+  ```
+
+The steps below describe what happens on the Gitea mirror once the tag exists.
 
 1. The Gitea mirror picks up the tag on its next sync. To trigger it immediately, use
    *Settings → Mirror settings → Synchronize now* on the Gitea repo.

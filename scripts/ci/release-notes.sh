@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Writes dist/RELEASE_NOTES.md for the tag in $GITHUB_REF: install guide + commits since the previous tag.
+# Writes dist/RELEASE_NOTES.md for the tag in $RELEASE_REF / $GITHUB_REF: install guide + commits since the previous tag.
 set -euo pipefail
 
-tag="${GITHUB_REF#refs/tags/}"
+ref="${RELEASE_REF:-$GITHUB_REF}"
+tag="${ref#refs/tags/}"
 prev="$(git describe --tags --abbrev=0 --match 'v[0-9]*' "${tag}^" 2>/dev/null || true)"
 range="$tag"
 if [ -n "$prev" ]; then range="${prev}..${tag}"; fi
