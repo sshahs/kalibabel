@@ -16,6 +16,7 @@ for f in app/build/outputs/apk/debug/*universal*.apk; do
 done
 cp -r app/build/reports/. reports/ 2>/dev/null || true
 cp -r app/build/screenshots reports/screenshots 2>/dev/null || true
+cp -r app/build/outputs/mapping reports/r8-mapping 2>/dev/null || true
 
 if ls dist/*-release.apk >/dev/null 2>&1; then
   (cd dist && sha256sum *-release.apk > SHA256SUMS.txt)

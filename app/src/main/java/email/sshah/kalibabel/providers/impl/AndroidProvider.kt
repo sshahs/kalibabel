@@ -11,9 +11,11 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import com.google.android.gms.tasks.Task
 import com.google.mlkit.common.model.DownloadConditions
+import com.google.mlkit.common.model.RemoteModelManager
 import com.google.mlkit.nl.languageid.LanguageIdentification
 import com.google.mlkit.nl.languageid.LanguageIdentificationOptions
 import com.google.mlkit.nl.translate.TranslateLanguage
+import com.google.mlkit.nl.translate.TranslateRemoteModel
 import com.google.mlkit.nl.translate.Translation
 import com.google.mlkit.nl.translate.Translator
 import com.google.mlkit.nl.translate.TranslatorOptions
@@ -70,6 +72,14 @@ class OnDeviceTranslator {
         return translators.getOrPut("$src>$dst") {
             Translation.getClient(TranslatorOptions.Builder().setSourceLanguage(src).setTargetLanguage(dst).build())
         }
+    }
+
+    /** Languages of the pair whose offline pack still has to be downloaded. */
+    suspend fun missingPacks(from: Language, to: Language): List<Language> = listOf(from, to).filter { l ->
+        val code = mlKitCode(l) ?: return@filter false
+        runCatching {
+            !RemoteModelManager.getInstance().isModelDownloaded(TranslateRemoteModel.Builder(code).build()).await()
+        }.getOrDefault(false)
     }
 
     suspend fun translate(text: String, from: Language, to: Language): String {
@@ -206,6 +216,14 @@ class AndroidProvider(
                 source = detected
                 target = if (detected == request.languageA) request.languageB else request.languageA
                 emit(TranslationDelta.Target(target))
+            }
+            val missing = onDevice.missingPacks(source, target)
+            if (missing.isNotEmpty()) {
+                emit(
+                    TranslationDelta.Status(
+                        "Downloading the offline ${missing.joinToString(" & ") { it.englishName }} pack (one-time, ~30 MB)…",
+                    ),
+                )
             }
             emit(TranslationDelta.Text(onDevice.translate(request.text, source, target)))
         }

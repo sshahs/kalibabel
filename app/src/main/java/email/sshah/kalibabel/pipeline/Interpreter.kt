@@ -509,6 +509,7 @@ class Interpreter(
         val context = recentContext(id, s.contextTurns)
 
         var spokenTarget: Language? = target
+        var statusNote: String? = null
         val sentences = Channel<String>(Channel.UNLIMITED)
         val ttsJob = slot?.let { launch { speakSentences(id, sentences, it, s) { spokenTarget ?: b } } }
 
@@ -552,6 +553,10 @@ class Interpreter(
             )
             e.translate(req).collect { d ->
                 when (d) {
+                    is TranslationDelta.Status -> {
+                        statusNote = d.message
+                        updateTurn(id) { it.copy(note = d.message) }
+                    }
                     is TranslationDelta.Target -> setTarget(if (Languages.matches(a, d.language.tag)) a else if (Languages.matches(b, d.language.tag)) b else d.language)
                     is TranslationDelta.Text -> if (tagParser != null) {
                         val passed = tagParser.push(d.text)
@@ -580,6 +585,7 @@ class Interpreter(
             updateTurn(id) { it.copy(note = "Translated on-device — ${e.userMessage()}") }
             run(registry.get(ProviderId.ANDROID).translation!!, "mlkit")
         }
+        statusNote?.let { note -> updateTurn(id) { if (it.note == note) it.copy(note = null) else it } }
         if (spokenTarget == null) spokenTarget = target ?: b
         chunker.flush()?.let { sentences.send(it) }
         sentences.close()

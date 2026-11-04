@@ -93,6 +93,9 @@ jobs:
       - name: Assemble APKs
         run: ./gradlew assembleDebug assembleRelease
 
+      - name: Check R8 kept reflective constructors
+        run: python3 scripts/ci/check-r8-reflection.py release
+
       - name: Collect outputs
         if: always()
         run: scripts/ci/collect-outputs.sh

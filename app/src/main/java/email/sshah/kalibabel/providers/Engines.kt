@@ -54,6 +54,9 @@ sealed interface TranslationDelta {
 
     /** Emitted by engines that decide the target language themselves (bidirectional mode). */
     data class Target(val language: Language) : TranslationDelta
+
+    /** Transient progress note shown on the turn (e.g. a one-time language pack download). */
+    data class Status(val message: String) : TranslationDelta
 }
 
 interface TranslationEngine {
