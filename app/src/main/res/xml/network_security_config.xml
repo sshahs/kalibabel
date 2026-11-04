@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cloud providers are all HTTPS. Cleartext is permitted only so that self-hosted
+  endpoints on a LAN (e.g. a local Ollama / LM Studio / vLLM server at http://192.168.x.x)
+  can be used. The app warns in the provider screen when a non-HTTPS base URL is configured.
+-->
+<network-security-config xmlns:tools="http://schemas.android.com/tools">
+    <base-config cleartextTrafficPermitted="true" tools:ignore="InsecureBaseConfiguration">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

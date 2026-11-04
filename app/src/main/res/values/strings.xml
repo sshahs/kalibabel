@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">KaliBabel</string>
+    <string name="process_text_label">Translate with KaliBabel</string>
+    <string name="share_label">Translate with KaliBabel</string>
+</resources>

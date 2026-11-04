@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A stylised babel fish with sound waves. Safe zone: 66dp circle centred in 108dp. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- body -->
+    <path
+        android:fillColor="#FFD23F"
+        android:pathData="M30,54 C30,42 42,35 54,35 C64,35 71,41 74,47 L84,39 L84,69 L74,61 C71,67 64,73 54,73 C42,73 30,66 30,54 Z" />
+    <!-- eye -->
+    <path
+        android:fillColor="#0B3C5D"
+        android:pathData="M44,50 m-3.5,0 a3.5,3.5 0,1 1,7 0 a3.5,3.5 0,1 1,-7 0" />
+    <!-- gill -->
+    <path
+        android:strokeColor="#0B3C5D"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M54,44 C58,50 58,58 54,64" />
+    <!-- sound waves -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M24,48 C21,52 21,56 24,60" />
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M18,44 C13,50 13,58 18,64" />
+</vector>
