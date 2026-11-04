@@ -21,6 +21,8 @@
 - UI render tests (`app/src/test/.../ui/ScreensRenderTest.kt`) write screenshots to `app/build/screenshots/`.
 - CI: `.gitea/workflows/android.yml` runs on the Gitea pull mirror https://tig.sshah.email/Cheeba/kalibabel via act_runner,
   only for `v*` tags + manual runs (GitHub CI covers every commit; avoids double builds per mirror sync). GitHub ignores it.
+- CI sets `KALIBABEL_MAVEN_MIRROR` (Google's Maven Central mirror) which `settings.gradle.kts` adds before
+  mavenCentral(); self-hosted runners get HTTP 429 from Maven Central on large artifacts. Unset locally.
 - Robolectric runs offline: its android-all jar is a Gradle dependency (`robolectricAndroidAll` in libs.versions.toml, must
   match what the Robolectric version expects for SDK 35) synced by `prepareRobolectricJars`. Bump both together. Releases: push a `v*` tag to GitHub → mirror sync → CI attaches signed APKs to the Gitea release
   (`scripts/ci/gitea-release.sh`). Never create tags/releases only on Gitea (mirror sync prunes them).

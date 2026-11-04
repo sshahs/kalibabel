@@ -30,6 +30,8 @@ permissions:
   contents: write # create releases and upload assets
 
 env:
+  # Google's mirror of Maven Central: avoids Maven Central's per-IP rate limits (HTTP 429) on runners.
+  KALIBABEL_MAVEN_MIRROR: "https://maven-central.storage-download.googleapis.com/maven2/"
   ANDROID_PLATFORM: "android-37.0"
   ANDROID_BUILD_TOOLS: "36.0.0"
   GRADLE_OPTS: "-Dorg.gradle.workers.max=4"

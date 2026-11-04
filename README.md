@@ -146,7 +146,9 @@ Each run:
 1. installs JDK 21 and the Android SDK (`scripts/ci/setup-android-sdk.sh`; Gradle and the SDK are
    cached with `actions/cache`)
 2. runs the unit tests and the Robolectric UI render tests (screenshots are uploaded with the reports).
-   Robolectric's Android runtime jar is resolved through Gradle and cached with it, so tests run offline
+   Robolectric's Android runtime jar is resolved through Gradle and cached with it, so tests run offline.
+   CI downloads Maven Central artifacts through Google's mirror (`KALIBABEL_MAVEN_MIRROR`), because
+   Maven Central rate-limits busy or self-hosted runner IPs (HTTP 429)
 3. runs lint
 4. builds debug and release APKs and uploads them as the `kalibabel-apks` artifact
 
