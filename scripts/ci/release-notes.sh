@@ -19,5 +19,12 @@ mkdir -p dist
   if [ -n "$prev" ]; then echo "## Changes since ${prev}"; else echo "## Changes"; fi
   echo
   git log -n 100 --no-merges --pretty='- %s (%h)' "$range"
+  if [ -n "${GITHUB_SERVER_URL:-}" ] && [ -n "${GITHUB_REPOSITORY:-}" ]; then
+    repo_url="${GITHUB_SERVER_URL%/}/${GITHUB_REPOSITORY}"
+    sha="$(git rev-parse HEAD)"
+    echo
+    echo "---"
+    echo "Built on [${GITHUB_REPOSITORY}](${repo_url}) from commit [${sha:0:7}](${repo_url}/commit/${sha})${RUN_URL:+ by [this run](${RUN_URL})}."
+  fi
 } > dist/RELEASE_NOTES.md
 cat dist/RELEASE_NOTES.md

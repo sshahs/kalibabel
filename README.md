@@ -181,8 +181,10 @@ Each run:
 
 The steps below describe what happens on the Gitea mirror once the tag exists.
 
-1. The Gitea mirror picks up the tag on its next sync. To trigger it immediately, use
-   *Settings → Mirror settings → Synchronize now* on the Gitea repo.
+1. The Gitea mirror picks up the tag on its **next scheduled sync**. Nothing needs doing by hand: the
+   release appears on Gitea on its own, just like KaliScriber's. How soon depends on the mirror
+   interval (*Settings → Repository → Mirror settings → Interval*; Gitea's default is 8 hours, and
+   something like `10m` makes releases show up within minutes). *Synchronize now* is only a shortcut.
 2. The sync fires a `push` event for the tag. The workflow builds and signs the APKs, then
    `scripts/ci/gitea-release.sh` turns the synced tag into a full release on the mirror repo. It
    attaches the per-ABI APKs and `SHA256SUMS.txt`, and adds release notes listing every commit since
@@ -263,11 +265,15 @@ downloads.
 offline copy. Android only installs an update over an existing install if it's signed with the same
 key. If the key is lost, every user would have to uninstall and reinstall.
 
-**Safeguards in CI** (`scripts/ci/decode-keystore.sh`):
+**Safeguards in CI** (`scripts/ci/decode-keystore.sh`, `scripts/ci/check-signing-cert.sh`):
 
 - A `v*` tag build **fails** if the signing secrets are missing. A release signed with the debug key
   can never be upgraded to by a properly signed one.
 - A wrong password or alias fails early with a clear error.
+- Every APK is checked against the certificate fingerprint pinned in `.github/signing-cert-sha256`
+  before anything is published. If either forge's `KEYSTORE_BASE64` ever held a different key, the
+  release fails instead of shipping APKs that won't install as updates. If you ever change the
+  signing key on purpose, update this file too.
 - Builds of `main` without secrets still run, signed with the debug key.
 
 Artifacts are uploaded with `actions/upload-artifact@v3`, because Gitea identifies itself as GHES,

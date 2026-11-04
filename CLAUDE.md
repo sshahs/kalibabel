@@ -39,6 +39,9 @@
 - Release signing secrets (Gitea repo → Settings → Actions → Secrets): `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`,
   `KEY_ALIAS`, `KEY_PASSWORD` (+ optional `RELEASE_TOKEN`); optional variables `RELEASE_DRAFT`, `ALLOW_DEBUG_SIGNED_RELEASE`.
   Created locally by the user with `scripts/release-keystore.sh`; never generate or handle the real signing key here.
+  The release certificate SHA-256 is pinned in `.github/signing-cert-sha256`; `scripts/ci/check-signing-cert.sh` fails
+  release builds whose APKs don't match (both forges must hold the same key). Gitea releases happen automatically on
+  the mirror's scheduled sync (like the KaliScriber repo); "Synchronize now" is optional.
 - Providers: add a `ProviderSpec` in `providers/ProviderSpecs.kt`; OpenAI-compatible APIs need nothing else,
   others get a `Provider` subclass in `providers/impl/` mapped in `ProviderRegistry.create`.
 - API keys live only in `SecureKeyStore` (Android Keystore AES-GCM); never log or persist them elsewhere.
