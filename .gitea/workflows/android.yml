@@ -2,8 +2,17 @@
 #
 # Runner requirements: an x86_64 act_runner whose `ubuntu-latest` label maps to an image with Node
 # (the default `gitea/runner-images:ubuntu-latest` or `catthehacker/ubuntu:act-latest` work), ~6 GB RAM.
-# Optional secrets for signed releases: KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD.
-# Optional secret RELEASE_TOKEN if the automatic token may not create releases on your instance.
+# Secrets (repo Settings → Actions → Secrets; create them with scripts/release-keystore.sh):
+#   KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD  – release signing (required for v* tags)
+#   RELEASE_TOKEN (optional) – token with write:repository if the automatic token may not create releases
+# Variables (repo Settings → Actions → Variables, all optional):
+#   RELEASE_DRAFT=true                – publish releases as drafts for review
+#   ALLOW_DEBUG_SIGNED_RELEASE=true   – allow tag builds without signing secrets (testing only)
+#
+# Releases: push a tag `v*` to GitHub. When the pull mirror (https://tig.sshah.email/Cheeba/kalibabel)
+# syncs it, Gitea fires a push event for the tag, this workflow builds and the APKs are attached to
+# the release of that tag on the mirror repo. Requires Gitea >= 1.21.5 (older versions wipe
+# releases of pull mirrors on every sync).
 name: Android CI
 
 on:
@@ -16,6 +25,11 @@ on:
 concurrency:
   group: android-${{ github.ref }}
   cancel-in-progress: true
+
+# Releases are part of "contents". Gitea >= 1.26 honours this even when the instance defaults
+# Actions tokens to "restricted"; older versions ignore it and use their (permissive) default.
+permissions:
+  contents: write
 
 env:
   CMDLINE_TOOLS_VERSION: "16111833"
@@ -60,11 +74,10 @@ jobs:
 
       - name: Compute version
         run: |
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            name="${GITHUB_REF_NAME#v}"
-          else
-            name="0.1.0-$(git rev-parse --short HEAD)"
-          fi
+          case "$GITHUB_REF" in
+            refs/tags/v*) name="${GITHUB_REF#refs/tags/v}" ;;
+            *) name="0.1.0-$(git rev-parse --short HEAD)" ;;
+          esac
           echo "KALIBABEL_VERSION_NAME=$name" >> "$GITHUB_ENV"
           echo "KALIBABEL_VERSION_CODE=${{ github.run_number }}" >> "$GITHUB_ENV"
           echo "Version $name (${{ github.run_number }})"
@@ -75,19 +88,8 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: |
-          if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
-            {
-              echo "KALIBABEL_KEYSTORE_FILE=$RUNNER_TEMP/release.jks"
-              echo "KALIBABEL_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"
-              echo "KALIBABEL_KEY_ALIAS=$KEY_ALIAS"
-              echo "KALIBABEL_KEY_PASSWORD=$KEY_PASSWORD"
-            } >> "$GITHUB_ENV"
-            echo "Release builds will be signed with the provided keystore."
-          else
-            echo "::warning::No KEYSTORE_BASE64 secret: release APKs are signed with the debug key."
-          fi
+          ALLOW_DEBUG_SIGNED_RELEASE: ${{ vars.ALLOW_DEBUG_SIGNED_RELEASE }}
+        run: scripts/ci/decode-keystore.sh
 
       - name: Unit & UI render tests
         run: ./gradlew --stacktrace testDebugUnitTest
@@ -111,6 +113,13 @@ jobs:
           done
           cp -r app/build/reports/. reports/ 2>/dev/null || true
           cp -r app/build/screenshots reports/screenshots 2>/dev/null || true
+          (cd dist && ls *-release.apk >/dev/null 2>&1 && sha256sum *-release.apk > SHA256SUMS.txt) || true
+          apk="$(ls dist/*-arm64-v8a-release.apk 2>/dev/null | head -n1)"
+          if [ -n "$apk" ]; then
+            cert="$("$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS/apksigner" verify --print-certs "$apk" | awk -F': ' '/SHA-256 digest/ {print $2; exit}')"
+            echo "SIGNING_CERT_SHA256=$cert" >> "$GITHUB_ENV"
+            echo "Signing certificate SHA-256: $cert"
+          fi
           ls -la dist || true
 
       # Gitea identifies as GHES, which upload-artifact@v4 refuses; v3 works with Gitea's artifact API.
@@ -129,11 +138,34 @@ jobs:
           path: reports
           if-no-files-found: ignore
 
+      - name: Write release notes
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          prev="$(git describe --tags --abbrev=0 "${tag}^" 2>/dev/null || true)"
+          {
+            echo "## Install"
+            echo
+            echo "Most phones: **KaliBabel-${KALIBABEL_VERSION_NAME}-arm64-v8a-release.apk**."
+            echo "Older 32-bit phones: \`armeabi-v7a\`. Emulators/Chromebooks: \`x86_64\`. Not sure: \`universal\` (larger)."
+            echo "Verify downloads with \`sha256sum -c SHA256SUMS.txt\`."
+            if [ -n "${SIGNING_CERT_SHA256:-}" ]; then echo "Signing certificate SHA-256: \`${SIGNING_CERT_SHA256}\`"; fi
+            echo
+            if [ -n "$prev" ]; then echo "## Changes since ${prev}"; else echo "## Changes"; fi
+            echo
+            range="$tag"
+            if [ -n "$prev" ]; then range="${prev}..${tag}"; fi
+            git log -n 100 --no-merges --pretty='- %s (%h)' "$range"
+          } > dist/RELEASE_NOTES.md
+          cat dist/RELEASE_NOTES.md
+
       - name: Publish Gitea release
-        if: github.ref_type == 'tag'
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           GITEA_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
           SERVER_URL: ${{ github.server_url }}
           REPOSITORY: ${{ github.repository }}
-          TAG: ${{ github.ref_name }}
-        run: scripts/ci/gitea-release.sh dist/*-release.apk
+          TARGET_SHA: ${{ github.sha }}
+          NOTES_FILE: dist/RELEASE_NOTES.md
+          DRAFT: ${{ vars.RELEASE_DRAFT }}
+        run: TAG="${GITHUB_REF#refs/tags/}" scripts/ci/gitea-release.sh dist/*-release.apk dist/SHA256SUMS.txt

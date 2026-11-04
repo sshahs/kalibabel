@@ -17,6 +17,21 @@ mixing cloud and on-device engines. The free on-device stack works out of the bo
 
 *(Screenshots are rendered by the Robolectric UI tests in CI.)*
 
+## Download
+
+Signed APKs are attached to each release on the Gitea mirror:
+**https://tig.sshah.email/Cheeba/kalibabel/releases**. Each release has these files:
+
+| File | Install on |
+|---|---|
+| `KaliBabel-<version>-arm64-v8a-release.apk` | Almost every phone from the last ~8 years |
+| `KaliBabel-<version>-armeabi-v7a-release.apk` | Older 32-bit phones |
+| `KaliBabel-<version>-x86_64-release.apk` | Emulators and Chromebooks |
+| `KaliBabel-<version>-universal-release.apk` | Any device (larger download) |
+| `SHA256SUMS.txt` | Checksums: `sha256sum -c SHA256SUMS.txt` |
+
+You can also open this page from the app, under **Settings → About → Releases & updates**.
+
 ## Features
 
 - **Three mics.** One for each person's language, plus an **Auto** mic that detects which of the two
@@ -124,9 +139,42 @@ mirror (`tig.sshah.email`). On every push and pull request it:
 3. runs lint
 4. builds debug and release APKs and uploads them as the `kalibabel-apks` artifact
 
-**Pushing a tag `v1.2.3`** also creates a Gitea release and attaches the per-ABI release APKs to it
-(`scripts/ci/gitea-release.sh`). Tags containing `-` (for example `v1.0.0-beta1`) are marked as
-prereleases.
+### Publishing a release
+
+`https://tig.sshah.email/Cheeba/kalibabel` is a pull mirror of GitHub, so releases start from a
+**tag pushed to GitHub**:
+
+```bash
+git tag -a v0.2.0 -m "KaliBabel 0.2.0"
+git push origin v0.2.0
+```
+
+1. The Gitea mirror picks up the tag on its next sync. To trigger it immediately, use
+   *Settings → Mirror settings → Synchronize now* on the Gitea repo.
+2. The sync fires a `push` event for the tag. The workflow builds and signs the APKs, then
+   `scripts/ci/gitea-release.sh` turns the synced tag into a full release on the mirror repo. It
+   attaches the per-ABI APKs and `SHA256SUMS.txt`, and adds release notes listing every commit since
+   the previous tag.
+3. The job log and summary link straight to the release page.
+
+Tags containing `-` (for example `v1.0.0-beta1`) are published as prereleases. Re-running the job
+replaces the existing assets instead of duplicating them.
+
+Releases only come from tags. Tags created on Gitea alone would be deleted again by the next mirror
+sync, so builds from `main` are kept as workflow artifacts instead.
+
+**Gitea-side requirements for releases:**
+
+- **Gitea 1.21.5 or newer.** Older versions wipe all releases of pull mirrors on every sync.
+- **The Actions and Releases units are enabled** on the mirror repo (repo *Settings → Repository*).
+- **The Actions token can write releases.** The workflow requests `contents: write`, which is
+  enough with the default permissive token mode (and in restricted mode on Gitea 1.26+).
+  Otherwise, add a `RELEASE_TOKEN` secret with a personal token that has `write:repository`.
+- **Uploads are allowed:** about 75 MB for the universal APK. Check `[repository.release] FILE_MAX_SIZE`
+  and the reverse proxy body limit (for example nginx `client_max_body_size 200m`). If
+  `[repository.release] ALLOWED_TYPES` is set, it must allow `.apk` and `.txt`.
+- **Optional:** shorten the mirror interval (for example `10m`) so new commits and tags build
+  sooner.
 
 **Runner requirements:**
 
@@ -136,13 +184,53 @@ prereleases.
 - About 6 GB of RAM.
 - Actions on the instance can resolve `actions/*` from GitHub (Gitea's default `DEFAULT_ACTIONS_URL`).
 
-**Secrets** (all optional):
+### Secrets and variables for APK releases
 
-| Secret | Purpose |
-|---|---|
-| `KEYSTORE_BASE64` | `base64 -w0 release.jks`, used for signed release APKs |
-| `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD` | Keystore credentials |
-| `RELEASE_TOKEN` | A token with repository write access, if the automatic token on your instance can't create releases |
+Set these on the Gitea repo under **Settings → Actions → Secrets / Variables**
+(https://tig.sshah.email/Cheeba/kalibabel/settings/actions/secrets).
+
+| Secret | Required | Value |
+|---|---|---|
+| `KEYSTORE_BASE64` | for `v*` tags | The release keystore, base64-encoded on one line |
+| `KEYSTORE_PASSWORD` | for `v*` tags | The keystore password |
+| `KEY_ALIAS` | for `v*` tags | The key alias (`kalibabel` if you use the script below) |
+| `KEY_PASSWORD` | for `v*` tags | The key password. For PKCS12 keystores this is the same as `KEYSTORE_PASSWORD` |
+| `RELEASE_TOKEN` | no | A personal access token with `write:repository`. Only needed if the automatic Actions token can't create releases on your instance |
+
+| Variable | Default | Effect |
+|---|---|---|
+| `RELEASE_DRAFT` | unset | Set to `true` to publish releases as drafts, so you can review them before they go public |
+| `ALLOW_DEBUG_SIGNED_RELEASE` | unset | Set to `true` to let tag builds run without signing secrets (testing only) |
+
+**Creating the signing key and secrets.** Run this on your own machine (it needs a JDK), so the
+private key never passes through CI logs or chat:
+
+```bash
+# Creates release-signing/kalibabel-release.jks (git-ignored) and uploads the four secrets.
+# The token needs the write:repository scope: https://tig.sshah.email/user/settings/applications
+GITEA_TOKEN=<your token> scripts/release-keystore.sh --upload
+
+# Or, without a token: writes release-signing/gitea-secrets.txt for you to paste into the UI.
+scripts/release-keystore.sh
+
+# Already have a keystore? Reuse it:
+scripts/release-keystore.sh --keystore path/to/existing.jks --upload
+```
+
+The script checks the alias and password before it uploads anything, then prints the certificate's
+SHA-256 fingerprint. CI prints the same fingerprint in each release's notes, so users can verify
+downloads.
+
+**Back up the `.jks` file and its password** somewhere safe, such as a password manager plus an
+offline copy. Android only installs an update over an existing install if it's signed with the same
+key. If the key is lost, every user would have to uninstall and reinstall.
+
+**Safeguards in CI** (`scripts/ci/decode-keystore.sh`):
+
+- A `v*` tag build **fails** if the signing secrets are missing. A release signed with the debug key
+  can never be upgraded to by a properly signed one.
+- A wrong password or alias fails early with a clear error.
+- Builds of `main` without secrets still run, signed with the debug key.
 
 Artifacts are uploaded with `actions/upload-artifact@v3`, because Gitea identifies itself as GHES,
 which `@v4` rejects.

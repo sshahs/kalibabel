@@ -30,6 +30,8 @@ android {
         versionCode = (System.getenv("KALIBABEL_VERSION_CODE") ?: "1").toInt()
         versionName = System.getenv("KALIBABEL_VERSION_NAME") ?: "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // Where CI publishes signed APKs (Gitea releases of the mirror repo).
+        buildConfigField("String", "RELEASES_URL", "\"https://tig.sshah.email/Cheeba/kalibabel/releases\"")
     }
 
     signingConfigs {

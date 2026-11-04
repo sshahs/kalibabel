@@ -16,3 +16,4 @@ keystore.properties
 .kotlin/
 /dist/
 /reports/
+/release-signing/

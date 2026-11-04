@@ -15,7 +15,13 @@
   compileSdk 37 (`platforms;android-37.0`), build-tools 36.0.0, targetSdk 36, minSdk 26, JDK 17+.
 - Verify changes with: `./gradlew testDebugUnitTest lintDebug assembleDebug` (lint must stay at 0 issues).
 - UI render tests (`app/src/test/.../ui/ScreensRenderTest.kt`) write screenshots to `app/build/screenshots/`.
-- CI: `.gitea/workflows/android.yml` runs on the Gitea mirror (tig.sshah.email) via act_runner; GitHub ignores it.
+- CI: `.gitea/workflows/android.yml` runs on the Gitea pull mirror https://tig.sshah.email/Cheeba/kalibabel via act_runner;
+  GitHub ignores it. Releases: push a `v*` tag to GitHub → mirror sync → CI attaches signed APKs to the Gitea release
+  (`scripts/ci/gitea-release.sh`). Never create tags/releases only on Gitea (mirror sync prunes them).
+- In-app releases link: `BuildConfig.RELEASES_URL` (app/build.gradle.kts).
+- Release signing secrets (Gitea repo → Settings → Actions → Secrets): `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`,
+  `KEY_ALIAS`, `KEY_PASSWORD` (+ optional `RELEASE_TOKEN`); optional variables `RELEASE_DRAFT`, `ALLOW_DEBUG_SIGNED_RELEASE`.
+  Created locally by the user with `scripts/release-keystore.sh`; never generate or handle the real signing key here.
 - Providers: add a `ProviderSpec` in `providers/ProviderSpecs.kt`; OpenAI-compatible APIs need nothing else,
   others get a `Provider` subclass in `providers/impl/` mapped in `ProviderRegistry.create`.
 - API keys live only in `SecureKeyStore` (Android Keystore AES-GCM); never log or persist them elsewhere.

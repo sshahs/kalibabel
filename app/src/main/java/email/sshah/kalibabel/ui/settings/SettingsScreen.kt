@@ -21,6 +21,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import email.sshah.kalibabel.AppContainer
@@ -57,6 +58,7 @@ fun SettingsScreen(container: AppContainer, onBack: () -> Unit, onOpenProviders:
     val keysVersion by container.keys.version.collectAsStateWithLifecycle()
     val update = container.settings::update
     var dialog by remember { mutableStateOf<SettingsDialog?>(null) }
+    val uriHandler = LocalUriHandler.current
 
     Scaffold(topBar = { BackTopBar("Settings", onBack) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState())) {
@@ -145,8 +147,14 @@ fun SettingsScreen(container: AppContainer, onBack: () -> Unit, onOpenProviders:
                 update { it.copy(faceToFace = v) }
             }
 
+            SectionHeader("About")
+            ClickableSetting(
+                title = "Releases & updates",
+                value = "KaliBabel ${BuildConfig.VERSION_NAME} · ${BuildConfig.RELEASES_URL.substringAfter("://")}",
+                onClick = { runCatching { uriHandler.openUri(BuildConfig.RELEASES_URL) } },
+            )
             Text(
-                "KaliBabel ${BuildConfig.VERSION_NAME} · keys are encrypted with the Android Keystore and only sent to the provider they belong to.",
+                "API keys are encrypted with the Android Keystore and only sent to the provider they belong to.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(16.dp),
