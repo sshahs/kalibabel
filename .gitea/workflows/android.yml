@@ -9,17 +9,19 @@
 #   RELEASE_DRAFT=true                – publish releases as drafts for review
 #   ALLOW_DEBUG_SIGNED_RELEASE=true   – allow tag builds without signing secrets (testing only)
 #
-# Releases: push a tag `v*` to GitHub. When the pull mirror (https://tig.sshah.email/Cheeba/kalibabel)
-# syncs it, Gitea fires a push event for the tag, this workflow builds and the APKs are attached to
-# the release of that tag on the mirror repo. Requires Gitea >= 1.21.5 (older versions wipe
+# Releases: push a tag `v*` to GitHub (or use the GitHub workflow's Run workflow → release_tag). When
+# the pull mirror (https://tig.sshah.email/Cheeba/kalibabel) syncs it, Gitea fires a push event for the
+# tag, this workflow builds and the APKs are attached to the release of that tag on the mirror repo.
+#
+# Only tags trigger this workflow (plus manual runs): every commit is already tested on GitHub, and a
+# mirror sync delivers the commit and its tag as two separate push events, which would otherwise
+# build the same commit twice. Requires Gitea >= 1.21.5 (older versions wipe
 # releases of pull mirrors on every sync).
 name: Android CI
 
 on:
   push:
-    branches: [main, master]
     tags: ["v*"]
-  pull_request:
   workflow_dispatch:
 
 concurrency:

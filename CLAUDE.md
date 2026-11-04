@@ -19,8 +19,10 @@
 - Retrace release crashes: R8 output is deterministic, so rebuild the release tag's commit and use
   `app/build/outputs/mapping/release/mapping.txt`.
 - UI render tests (`app/src/test/.../ui/ScreensRenderTest.kt`) write screenshots to `app/build/screenshots/`.
-- CI: `.gitea/workflows/android.yml` runs on the Gitea pull mirror https://tig.sshah.email/Cheeba/kalibabel via act_runner;
-  GitHub ignores it. Releases: push a `v*` tag to GitHub → mirror sync → CI attaches signed APKs to the Gitea release
+- CI: `.gitea/workflows/android.yml` runs on the Gitea pull mirror https://tig.sshah.email/Cheeba/kalibabel via act_runner,
+  only for `v*` tags + manual runs (GitHub CI covers every commit; avoids double builds per mirror sync). GitHub ignores it.
+- Robolectric runs offline: its android-all jar is a Gradle dependency (`robolectricAndroidAll` in libs.versions.toml, must
+  match what the Robolectric version expects for SDK 35) synced by `prepareRobolectricJars`. Bump both together. Releases: push a `v*` tag to GitHub → mirror sync → CI attaches signed APKs to the Gitea release
   (`scripts/ci/gitea-release.sh`). Never create tags/releases only on Gitea (mirror sync prunes them).
 - GitHub CI: `.github/workflows/android.yml` does the same build and publishes GitHub Releases. Keep both workflows in
   sync by putting logic in `scripts/ci/*.sh` (version.sh, decode-keystore.sh, collect-outputs.sh, release-notes.sh).

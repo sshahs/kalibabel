@@ -134,16 +134,19 @@ are signed with the debug key.
 
 There are two workflows that do the same job using the same scripts in `scripts/ci/`:
 
-- `.gitea/workflows/android.yml` runs on the Gitea mirror and publishes Gitea releases.
-- `.github/workflows/android.yml` runs on GitHub and publishes GitHub releases.
+- `.gitea/workflows/android.yml` runs on the Gitea mirror for **release tags** (and manual runs), and
+  publishes Gitea releases.
+- `.github/workflows/android.yml` runs on GitHub for every push and pull request, and publishes GitHub
+  releases.
 
 Each forge only reads its own folder. `versionCode` is the number of commits on `HEAD`, so a build of
 a given commit gets the same code on both forges, and newer builds can always update older installs.
-On every push and pull request, each workflow:
+Each run:
 
 1. installs JDK 21 and the Android SDK (`scripts/ci/setup-android-sdk.sh`; Gradle and the SDK are
    cached with `actions/cache`)
-2. runs the unit tests and the Robolectric UI render tests (screenshots are uploaded with the reports)
+2. runs the unit tests and the Robolectric UI render tests (screenshots are uploaded with the reports).
+   Robolectric's Android runtime jar is resolved through Gradle and cached with it, so tests run offline
 3. runs lint
 4. builds debug and release APKs and uploads them as the `kalibabel-apks` artifact
 

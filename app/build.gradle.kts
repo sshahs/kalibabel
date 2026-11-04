@@ -100,7 +100,23 @@ android {
     }
 }
 
+// Robolectric normally downloads its ~160 MB Android runtime jar from Maven Central at test time,
+// outside the Gradle cache — on CI that is a fresh download every run and fails on rate limits
+// (HTTP 429). Resolve it through Gradle instead (cached like any dependency) and run offline.
+val robolectricRuntime = configurations.create("robolectricRuntime") { isTransitive = false }
+val robolectricJarsDir = layout.buildDirectory.dir("robolectric-jars")
+val prepareRobolectricJars = tasks.register<Sync>("prepareRobolectricJars") {
+    from(robolectricRuntime)
+    into(robolectricJarsDir)
+}
+tasks.withType<Test>().configureEach {
+    dependsOn(prepareRobolectricJars)
+    systemProperty("robolectric.offline", "true")
+    systemProperty("robolectric.dependency.dir", robolectricJarsDir.get().asFile.absolutePath)
+}
+
 dependencies {
+    robolectricRuntime(libs.robolectric.android.all)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
