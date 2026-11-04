@@ -73,14 +73,7 @@ jobs:
         run: ANDROID_HOME="$HOME/android-sdk" scripts/ci/setup-android-sdk.sh
 
       - name: Compute version
-        run: |
-          case "$GITHUB_REF" in
-            refs/tags/v*) name="${GITHUB_REF#refs/tags/v}" ;;
-            *) name="0.1.0-$(git rev-parse --short HEAD)" ;;
-          esac
-          echo "KALIBABEL_VERSION_NAME=$name" >> "$GITHUB_ENV"
-          echo "KALIBABEL_VERSION_CODE=${{ github.run_number }}" >> "$GITHUB_ENV"
-          echo "Version $name (${{ github.run_number }})"
+        run: scripts/ci/version.sh
 
       - name: Decode signing keystore
         env:
@@ -102,25 +95,7 @@ jobs:
 
       - name: Collect outputs
         if: always()
-        run: |
-          mkdir -p dist reports
-          for f in app/build/outputs/apk/release/*.apk; do
-            [ -e "$f" ] || continue
-            cp "$f" "dist/KaliBabel-${KALIBABEL_VERSION_NAME}-$(basename "$f" | sed 's/^app-//')"
-          done
-          for f in app/build/outputs/apk/debug/*universal*.apk; do
-            [ -e "$f" ] && cp "$f" "dist/KaliBabel-${KALIBABEL_VERSION_NAME}-universal-debug.apk"
-          done
-          cp -r app/build/reports/. reports/ 2>/dev/null || true
-          cp -r app/build/screenshots reports/screenshots 2>/dev/null || true
-          (cd dist && ls *-release.apk >/dev/null 2>&1 && sha256sum *-release.apk > SHA256SUMS.txt) || true
-          apk="$(ls dist/*-arm64-v8a-release.apk 2>/dev/null | head -n1)"
-          if [ -n "$apk" ]; then
-            cert="$("$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS/apksigner" verify --print-certs "$apk" | awk -F': ' '/SHA-256 digest/ {print $2; exit}')"
-            echo "SIGNING_CERT_SHA256=$cert" >> "$GITHUB_ENV"
-            echo "Signing certificate SHA-256: $cert"
-          fi
-          ls -la dist || true
+        run: scripts/ci/collect-outputs.sh
 
       # Gitea identifies as GHES, which upload-artifact@v4 refuses; v3 works with Gitea's artifact API.
       - name: Upload APKs
@@ -140,24 +115,7 @@ jobs:
 
       - name: Write release notes
         if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          tag="${GITHUB_REF#refs/tags/}"
-          prev="$(git describe --tags --abbrev=0 "${tag}^" 2>/dev/null || true)"
-          {
-            echo "## Install"
-            echo
-            echo "Most phones: **KaliBabel-${KALIBABEL_VERSION_NAME}-arm64-v8a-release.apk**."
-            echo "Older 32-bit phones: \`armeabi-v7a\`. Emulators/Chromebooks: \`x86_64\`. Not sure: \`universal\` (larger)."
-            echo "Verify downloads with \`sha256sum -c SHA256SUMS.txt\`."
-            if [ -n "${SIGNING_CERT_SHA256:-}" ]; then echo "Signing certificate SHA-256: \`${SIGNING_CERT_SHA256}\`"; fi
-            echo
-            if [ -n "$prev" ]; then echo "## Changes since ${prev}"; else echo "## Changes"; fi
-            echo
-            range="$tag"
-            if [ -n "$prev" ]; then range="${prev}..${tag}"; fi
-            git log -n 100 --no-merges --pretty='- %s (%h)' "$range"
-          } > dist/RELEASE_NOTES.md
-          cat dist/RELEASE_NOTES.md
+        run: scripts/ci/release-notes.sh
 
       - name: Publish Gitea release
         if: startsWith(github.ref, 'refs/tags/v')

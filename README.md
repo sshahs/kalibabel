@@ -19,8 +19,10 @@ mixing cloud and on-device engines. The free on-device stack works out of the bo
 
 ## Download
 
-Signed APKs are attached to each release on the Gitea mirror:
-**https://tig.sshah.email/Cheeba/kalibabel/releases**. Each release has these files:
+Signed APKs are attached to each release, both on the Gitea mirror
+(**https://tig.sshah.email/Cheeba/kalibabel/releases**) and on GitHub
+(**https://github.com/sshahs/kalibabel/releases**). The files are built from the same commit and
+signed with the same key, so you can download from either. Each release has these files:
 
 | File | Install on |
 |---|---|
@@ -128,10 +130,16 @@ splits APKs by ABI. Install the `arm64-v8a` APK on modern phones.
 containing `storeFile`, `storePassword`, `keyAlias` and `keyPassword`. Without these, release builds
 are signed with the debug key.
 
-## CI: Gitea Actions (act_runner)
+## CI: Gitea Actions (act_runner) and GitHub Actions
 
-The workflow is `.gitea/workflows/android.yml`. GitHub ignores `.gitea/`, so it only runs on the Gitea
-mirror (`tig.sshah.email`). On every push and pull request it:
+There are two workflows that do the same job using the same scripts in `scripts/ci/`:
+
+- `.gitea/workflows/android.yml` runs on the Gitea mirror and publishes Gitea releases.
+- `.github/workflows/android.yml` runs on GitHub and publishes GitHub releases.
+
+Each forge only reads its own folder. `versionCode` is the number of commits on `HEAD`, so a build of
+a given commit gets the same code on both forges, and newer builds can always update older installs.
+On every push and pull request, each workflow:
 
 1. installs JDK 21 and the Android SDK (`scripts/ci/setup-android-sdk.sh`; Gradle and the SDK are
    cached with `actions/cache`)
@@ -186,8 +194,14 @@ sync, so builds from `main` are kept as workflow artifacts instead.
 
 ### Secrets and variables for APK releases
 
-Set these on the Gitea repo under **Settings → Actions → Secrets / Variables**
-(https://tig.sshah.email/Cheeba/kalibabel/settings/actions/secrets).
+Set the same values in both places:
+
+- **Gitea:** **Settings → Actions → Secrets / Variables**
+  (https://tig.sshah.email/Cheeba/kalibabel/settings/actions/secrets)
+- **GitHub:** **Settings → Secrets and variables → Actions**
+  (https://github.com/sshahs/kalibabel/settings/secrets/actions)
+
+`RELEASE_TOKEN` only applies to Gitea. GitHub uses its built-in token.
 
 | Secret | Required | Value |
 |---|---|---|

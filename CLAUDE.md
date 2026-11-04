@@ -18,6 +18,9 @@
 - CI: `.gitea/workflows/android.yml` runs on the Gitea pull mirror https://tig.sshah.email/Cheeba/kalibabel via act_runner;
   GitHub ignores it. Releases: push a `v*` tag to GitHub → mirror sync → CI attaches signed APKs to the Gitea release
   (`scripts/ci/gitea-release.sh`). Never create tags/releases only on Gitea (mirror sync prunes them).
+- GitHub CI: `.github/workflows/android.yml` does the same build and publishes GitHub Releases. Keep both workflows in
+  sync by putting logic in `scripts/ci/*.sh` (version.sh, decode-keystore.sh, collect-outputs.sh, release-notes.sh).
+  versionCode = `git rev-list --count HEAD` (identical on both forges) — workflows must check out with fetch-depth: 0.
 - In-app releases link: `BuildConfig.RELEASES_URL` (app/build.gradle.kts).
 - Release signing secrets (Gitea repo → Settings → Actions → Secrets): `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`,
   `KEY_ALIAS`, `KEY_PASSWORD` (+ optional `RELEASE_TOKEN`); optional variables `RELEASE_DRAFT`, `ALLOW_DEBUG_SIGNED_RELEASE`.
