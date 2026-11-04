@@ -33,6 +33,9 @@ for apk in "$@"; do
     if $is_release; then echo "::error::$msg"; else echo "::warning::$msg"; fi
   fi
 done
+if [ -n "${GITHUB_OUTPUT:-}" ]; then
+  if [ "$bad" = 0 ]; then echo "match=true" >> "$GITHUB_OUTPUT"; else echo "match=false" >> "$GITHUB_OUTPUT"; fi
+fi
 if [ "$bad" = 1 ] && $is_release; then
   echo "::error::Not publishing: check that KEYSTORE_BASE64 on this forge is the same key as on the other one."
   exit 1

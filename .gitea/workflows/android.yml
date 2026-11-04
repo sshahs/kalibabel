@@ -13,15 +13,17 @@
 # the pull mirror (https://tig.sshah.email/Cheeba/kalibabel) syncs it, Gitea fires a push event for the
 # tag, this workflow builds and the APKs are attached to the release of that tag on the mirror repo.
 #
-# Only tags trigger this workflow (plus manual runs): every commit is already tested on GitHub, and a
-# mirror sync delivers the commit and its tag as two separate push events, which would otherwise
-# build the same commit twice. Requires Gitea >= 1.21.5 (older versions wipe
+# Like KaliScriber: every commit the mirror sync brings is built (APKs as run artifacts), and a
+# v* tag additionally publishes a Gitea release. GitHub's build-<N> prerelease tags are not built
+# here — their commits are built from the branch push already. Requires Gitea >= 1.21.5 (older versions wipe
 # releases of pull mirrors on every sync).
 name: Android CI
 
 on:
   push:
+    branches: ["**"]
     tags: ["v*"]
+  pull_request:
   workflow_dispatch:
 
 concurrency:

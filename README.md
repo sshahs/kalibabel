@@ -145,10 +145,13 @@ are signed with the debug key.
 
 There are two workflows that do the same job using the same scripts in `scripts/ci/`:
 
-- `.gitea/workflows/android.yml` runs on the Gitea mirror for **release tags** (and manual runs), and
-  publishes Gitea releases.
-- `.github/workflows/android.yml` runs on GitHub for every push and pull request, and publishes GitHub
-  releases.
+- `.gitea/workflows/android.yml` runs on the Gitea mirror for **every commit a sync brings** (APKs as
+  run artifacts), and publishes a **Gitea release** when the sync brings a `v*` tag. This is the same
+  setup as KaliScriber.
+- `.github/workflows/android.yml` runs on GitHub for every push and pull request. Every push to `main`
+  is published as a **prerelease `build-<N>`**, so the newest build is always downloadable. Official
+  `v*` releases are a deliberate step (below). Gitea doesn't build the `build-<N>` tags, because their
+  commits were already built from the branch push.
 
 Each forge only reads its own folder. `versionCode` is the number of commits on `HEAD`, so a build of
 a given commit gets the same code on both forges, and newer builds can always update older installs.
@@ -194,8 +197,12 @@ The steps below describe what happens on the Gitea mirror once the tag exists.
 Tags containing `-` (for example `v1.0.0-beta1`) are published as prereleases. Re-running the job
 replaces the existing assets instead of duplicating them.
 
-Releases only come from tags. Tags created on Gitea alone would be deleted again by the next mirror
-sync, so builds from `main` are kept as workflow artifacts instead.
+Gitea releases only come from `v*` tags made on GitHub. Tags created on Gitea alone would be deleted
+again by the next mirror sync, so Gitea builds of other commits are kept as run artifacts.
+
+**Release notes:** by default, the notes list the commits since the previous `v*` release. To write
+your own instead (like KaliScriber), add `.github/release-notes/vX.Y.Z.md` before cutting `vX.Y.Z`.
+The install guide and links to the commit and the build are added automatically either way.
 
 **Gitea-side requirements for releases:**
 
