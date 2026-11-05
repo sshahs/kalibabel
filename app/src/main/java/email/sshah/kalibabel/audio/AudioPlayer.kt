@@ -6,6 +6,7 @@ import android.media.AudioFormat
 import android.media.AudioTrack
 import android.media.MediaPlayer
 import android.util.Log
+import email.sshah.kalibabel.data.ErrorLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -317,6 +318,8 @@ class SpeechQueue(private val scope: CoroutineScope, private val player: SpeechO
                             throw e
                         } catch (e: Exception) {
                             Log.w(TAG, "Playback for turn ${slot.turnId} interrupted", e)
+                            // Network drops are logged where the audio was downloaded; this is the player itself.
+                            if (e !is java.io.IOException) ErrorLog.warning("Playback", e.toString(), e)
                         }
                     }
                     currentPlay = job

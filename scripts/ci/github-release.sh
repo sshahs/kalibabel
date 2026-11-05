@@ -5,10 +5,21 @@
 # Tag: $TAG, else the tag in $RELEASE_REF / $GITHUB_REF. If TARGET_SHA is set and the tag does not
 # exist yet, gh creates it on that commit (used for the per-push build-<N> prereleases); otherwise
 # the tag must already exist.
+# Usage: github-release.sh <file>... [--optional <file>...]   (optional files are skipped if missing)
 # Env: GH_TOKEN, GITHUB_REPOSITORY; optional TAG, TITLE, NOTES_FILE, TARGET_SHA, PRERELEASE=true, DRAFT=true
 set -euo pipefail
 : "${GH_TOKEN:?GH_TOKEN is required}" "${GITHUB_REPOSITORY:?}"
-[ "$#" -gt 0 ] || { echo "::error::no files to upload"; exit 1; }
+files=()
+optional=false
+for f in "$@"; do
+  if [ "$f" = "--optional" ]; then optional=true; continue; fi
+  if [ ! -f "$f" ]; then
+    if [ "$optional" = true ]; then echo "::warning::skipping missing optional file $f"; continue; fi
+    echo "::error::missing file $f"; exit 1
+  fi
+  files+=("$f")
+done
+[ "${#files[@]}" -gt 0 ] || { echo "::error::no files to upload"; exit 1; }
 
 ref="${RELEASE_REF:-${GITHUB_REF:-}}"
 tag="${TAG:-${ref#refs/tags/}}"
@@ -24,11 +35,11 @@ if [ -n "${TARGET_SHA:-}" ]; then target=(--target "$TARGET_SHA"); else target=(
 if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
   echo "Updating existing release $tag"
   gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --title "$title" ${notes:+--notes-file "$notes"}
-  gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber "$@"
+  gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber "${files[@]}"
 else
   echo "Creating release $tag"
   gh release create "$tag" --repo "$GITHUB_REPOSITORY" "${target[@]}" --title "$title" \
-    ${notes:+--notes-file "$notes"} "${flags[@]}" "$@"
+    ${notes:+--notes-file "$notes"} "${flags[@]}" "${files[@]}"
 fi
 url="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json url -q .url 2>/dev/null || true)"
 url="${url:-https://github.com/${GITHUB_REPOSITORY}/releases/tag/${tag}}"

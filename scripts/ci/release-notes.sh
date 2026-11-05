@@ -18,7 +18,7 @@ mkdir -p dist
   echo
   echo "Most phones: **KaliBabel-${KALIBABEL_VERSION_NAME}-arm64-v8a-release.apk**."
   echo "Older 32-bit phones: \`armeabi-v7a\`. Emulators/Chromebooks: \`x86_64\`. Not sure: \`universal\` (larger)."
-  echo "Verify downloads with \`sha256sum -c SHA256SUMS.txt\`."
+  echo "Verify downloads with \`sha256sum -c SHA256SUMS.txt\`. The \`r8-mapping\` file is only for decoding crash reports."
   if [ -n "${SIGNING_CERT_SHA256:-}" ]; then echo "Signing certificate SHA-256: \`${SIGNING_CERT_SHA256}\`"; fi
   echo
   if [ -f "$notes_file" ]; then

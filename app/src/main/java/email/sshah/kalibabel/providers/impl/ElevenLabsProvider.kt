@@ -41,7 +41,9 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -96,13 +98,14 @@ class ElevenLabsProvider(ctx: ProviderContext) : Provider(ctx) {
         /** Eleven v3 is not available on the realtime WebSocket. */
         override fun supportsTextStreaming(model: String) = !model.contains("v3")
 
-        override fun synthesizeTextStream(request: TtsRequest, text: ReceiveChannel<String>): TtsOutput.Pcm {
+        override fun synthesizeTextStream(request: TtsRequest, text: ReceiveChannel<String>, onVoiced: (String) -> Unit): TtsOutput.Pcm {
             val voice = request.voice?.takeIf { it.isNotBlank() } ?: DEFAULT_VOICE
             val model = request.model.ifBlank { "eleven_flash_v2_5" }
             val query = buildList {
                 add("model_id" to model)
                 add("output_format" to "pcm_24000")
                 add("inactivity_timeout" to "60")
+                add("sync_alignment" to "true") // which characters each audio chunk voices: lets a dropped reply resume
                 if (supportsLanguageCode(model)) add("language_code" to request.language.code)
             }
             val req = Request.Builder()
@@ -123,7 +126,12 @@ class ElevenLabsProvider(ctx: ProviderContext) : Provider(ctx) {
                 ctx.http.webSocket(req, name) { openSocket = it; socket.complete(it) }.takeWhile { msg ->
                     if (msg !is WsMessage.Text) return@takeWhile true
                     val json = runCatching { AppJson.parseToJsonElement(msg.text) }.getOrNull() ?: return@takeWhile true
-                    json.str("audio")?.takeIf { it.isNotEmpty() }?.let { send(Base64.getDecoder().decode(it)) }
+                    json.str("audio")?.takeIf { it.isNotEmpty() }?.let { audio ->
+                        send(Base64.getDecoder().decode(audio))
+                        json.obj("alignment").arr("chars")?.let { chars ->
+                            onVoiced(chars.joinToString("") { (it as? JsonPrimitive)?.contentOrNull.orEmpty() })
+                        }
+                    }
                     val error = json.str("error") ?: json.obj("error").str("message")
                     if (error != null) throw ApiException(name, json.int("code") ?: 400, json.str("message") ?: error)
                     val done = json.bool("isFinal") == true
@@ -144,6 +152,9 @@ class ElevenLabsProvider(ctx: ProviderContext) : Provider(ctx) {
         override fun supportsBatch(model: String) = !model.contains("realtime")
 
         override fun supportsStreaming(model: String) = model.contains("realtime")
+
+        /** [transcribe] maps a realtime model to Scribe v2. */
+        override fun supportsBatchRecovery(model: String) = true
 
         override suspend fun transcribe(request: SttRequest, pcm: ShortArray, sampleRate: Int): SttResult {
             val model = request.model.takeUnless { it.contains("realtime") || it.isBlank() } ?: "scribe_v2"

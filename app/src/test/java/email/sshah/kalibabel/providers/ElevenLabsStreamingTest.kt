@@ -80,7 +80,9 @@ class ElevenLabsStreamingTest {
 
         private fun sendAudio(ws: WebSocket) {
             if (next == dropAfter) ws.hangUpOnceSent()
-            ws.send("""{"audio":"${Base64.getEncoder().encodeToString(chunks[next++])}","isFinal":null}""")
+            // Chunk i voices the word "w<i> ", reported character by character like ElevenLabs' alignment.
+            val chars = "w$next ".map { "\"$it\"" }.joinToString(",")
+            ws.send("""{"audio":"${Base64.getEncoder().encodeToString(chunks[next++])}","isFinal":null,"alignment":{"chars":[$chars]}}""")
         }
 
         override fun onOpen(webSocket: WebSocket, response: Response) = Unit
@@ -91,7 +93,8 @@ class ElevenLabsStreamingTest {
         server.enqueue(fakeTts())
         val text = Channel<String>(Channel.UNLIMITED)
         val request = TtsRequest("", Languages.byTag("es-ES"), "eleven_flash_v2_5", "voice123", 1.1f, null)
-        val output = provider(privacy = true).tts.synthesizeTextStream(request, text)
+        val voiced = StringBuffer()
+        val output = provider(privacy = true).tts.synthesizeTextStream(request, text) { voiced.append(it) }
         assertEquals(24_000, output.sampleRate)
 
         val audio = ByteArrayOutputStream()
@@ -102,12 +105,14 @@ class ElevenLabsStreamingTest {
             collector.join()
         }
         assertArrayEquals(chunks.reduce { a, b -> a + b }, audio.toByteArray())
+        assertEquals("w0 w1 w2 ", voiced.toString())
 
         val upgrade = server.takeRequest()
         val url = upgrade.requestUrl!!
         assertEquals("/v1/text-to-speech/voice123/stream-input", url.encodedPath)
         assertEquals("eleven_flash_v2_5", url.queryParameter("model_id"))
         assertEquals("pcm_24000", url.queryParameter("output_format"))
+        assertEquals("true", url.queryParameter("sync_alignment"))
         assertEquals("es", url.queryParameter("language_code"))
         assertEquals("false", url.queryParameter("enable_logging"))
         assertEquals("test-key", upgrade.getHeader("xi-api-key"))
@@ -148,15 +153,17 @@ class ElevenLabsStreamingTest {
     fun dropMidReplySurfacesAsIoException() = runBlocking {
         server.enqueue(fakeTts(dropAfter = 1))
         val text = Channel<String>(Channel.UNLIMITED)
+        val voiced = StringBuffer()
         val output = provider().tts.synthesizeTextStream(
             TtsRequest("", Languages.byTag("es-ES"), "eleven_flash_v2_5", null, 1f, null), text,
-        )
+        ) { voiced.append(it) }
         try {
             speak(output, text)
             fail("expected an IOException")
         } catch (e: IOException) {
             assertTrue(e.message!!, e.message!!.startsWith("ElevenLabs: "))
         }
+        assertEquals("what was voiced before the drop is reported, so the rest can be resumed", "w0 ", voiced.toString())
     }
 
     @Test

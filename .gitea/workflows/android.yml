@@ -148,4 +148,4 @@ jobs:
             build-*) TITLE="KaliBabel ${KALIBABEL_VERSION_NAME} (build ${TAG#build-})" ;;
             *) TITLE="KaliBabel ${TAG}" ;;
           esac
-          TAG="$TAG" TITLE="$TITLE" scripts/ci/gitea-release.sh dist/*-release.apk dist/SHA256SUMS.txt
+          TAG="$TAG" TITLE="$TITLE" scripts/ci/gitea-release.sh dist/*-release.apk dist/SHA256SUMS.txt --optional dist/*-r8-mapping.txt.gz

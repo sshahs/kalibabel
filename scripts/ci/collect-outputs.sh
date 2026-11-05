@@ -17,6 +17,9 @@ done
 cp -r app/build/reports/. reports/ 2>/dev/null || true
 cp -r app/build/screenshots reports/screenshots 2>/dev/null || true
 cp -r app/build/outputs/mapping reports/r8-mapping 2>/dev/null || true
+# Attached to releases so crash reports from that build can be decoded (retrace) without rebuilding.
+mapping=app/build/outputs/mapping/release/mapping.txt
+[ -f "$mapping" ] && gzip -9 -c "$mapping" > "dist/KaliBabel-${KALIBABEL_VERSION_NAME}-r8-mapping.txt.gz"
 
 if ls dist/*-release.apk >/dev/null 2>&1; then
   (cd dist && sha256sum *-release.apk > SHA256SUMS.txt)

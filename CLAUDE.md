@@ -16,8 +16,11 @@
 - Verify changes with: `./gradlew testDebugUnitTest lintDebug assembleDebug` (lint must stay at 0 issues).
   When touching dependencies or `app/proguard-rules.pro`, also run `./gradlew assembleRelease` and
   `python3 scripts/ci/check-r8-reflection.py` — R8 full mode only breaks the minified release (debug/tests can't see it).
-- Retrace release crashes: R8 output is deterministic, so rebuild the release tag's commit and use
-  `app/build/outputs/mapping/release/mapping.txt`.
+- Retrace release crashes: every release has `KaliBabel-<ver>-r8-mapping.txt.gz` attached (gunzip, then
+  `$ANDROID_HOME/cmdline-tools/latest/bin/retrace mapping.txt crash.txt`). R8 output is deterministic, so
+  rebuilding the tag's commit with the CI version env gives the same `mapping.txt` (match `pg_map_id`).
+- Users share crash/failure logs from Settings → Diagnostics (`data/ErrorLog`, on-device, keys redacted).
+  Record failures the app works around with `ErrorLog.warning`, user-visible ones with `ErrorLog.error`.
 - UI render tests (`app/src/test/.../ui/ScreensRenderTest.kt`) write screenshots to `app/build/screenshots/`.
 - CI: `.gitea/workflows/android.yml` runs on the Gitea pull mirror https://tig.sshah.email/Cheeba/kalibabel via
   act_runner for the tags GitHub creates — `build-*` (Gitea prerelease) and `v*` (Gitea release) via

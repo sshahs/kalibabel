@@ -138,7 +138,7 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           scripts/ci/release-notes.sh >/dev/null
-          NOTES_FILE=dist/RELEASE_NOTES.md scripts/ci/github-release.sh dist/*-release.apk dist/SHA256SUMS.txt
+          NOTES_FILE=dist/RELEASE_NOTES.md scripts/ci/github-release.sh dist/*-release.apk dist/SHA256SUMS.txt --optional dist/*-r8-mapping.txt.gz
 
       - name: Ask Gitea to sync the new build
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.cert.outputs.match == 'true'
@@ -163,7 +163,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           NOTES_FILE: dist/RELEASE_NOTES.md
           DRAFT: ${{ vars.RELEASE_DRAFT }}
-        run: scripts/ci/github-release.sh dist/*-release.apk dist/SHA256SUMS.txt
+        run: scripts/ci/github-release.sh dist/*-release.apk dist/SHA256SUMS.txt --optional dist/*-r8-mapping.txt.gz
 
       - name: Ask Gitea to sync the new release
         if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''

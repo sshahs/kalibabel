@@ -31,8 +31,9 @@ signed with the same key, so you can download from either. Each release has thes
 | `KaliBabel-<version>-x86_64-release.apk` | Emulators and Chromebooks |
 | `KaliBabel-<version>-universal-release.apk` | Any device (larger download) |
 | `SHA256SUMS.txt` | Checksums: `sha256sum -c SHA256SUMS.txt` |
+| `KaliBabel-<version>-r8-mapping.txt.gz` | Not for installing: decodes crash reports from that release |
 
-You can also open this page from the app, under **Settings → About → Releases & updates**.
+You can also open this page from the app, under **Settings → Releases & updates**.
 
 ## Features
 
@@ -54,8 +55,17 @@ You can also open this page from the app, under **Settings → About → Release
   - A glossary that also biases speech recognition (Deepgram keyterms, ElevenLabs keyterms, AssemblyAI
     keyterms_prompt, Whisper prompt)
   - Free-form extra instructions
-- **Resilience.** If a cloud provider fails (no signal, rate limit), the turn falls back to on-device
-  translation and the system voice.
+- **Resilience.**
+  - If a cloud provider fails (no signal, rate limit), the turn falls back to on-device translation
+    and the system voice.
+  - If the live transcription connection drops, nothing you said is lost: the speech it hadn't
+    confirmed yet is transcribed by upload (or, failing that, the live text so far is kept), and in
+    Interpreter mode listening carries on that way.
+  - If the ElevenLabs voice stream drops mid-reply, the rest of the reply is spoken sentence by
+    sentence from the word where it stopped.
+  - **Settings → Diagnostics** keeps an on-device log of crashes and of what failed or was worked
+    around, with API keys removed. You can share it from there; after a crash the app offers it on
+    the next launch.
 - **Latency breakdown on every message:** mouth-to-ear time, STT, time to first token, translation
   total, and time to first audio.
 - Text input, **"Translate with KaliBabel"** in the system text-selection menu, and the share sheet.
@@ -95,12 +105,12 @@ You can also open this page from the app, under **Settings → About → Release
    activity detector (VAD) cuts the utterance the moment you pause, and it uploads as raw 16 kHz PCM.
    The default **noise-robust detector** looks at the speech band of an FFT spectrum against a tracked
    noise profile, so steady background noise (traffic, fans, cafés) doesn't keep it stuck "listening".
-   *Settings → Listening → Speech detector* switches back to the basic volume-based one.
+   *Settings → Listening → Advanced → Speech detector* switches back to the basic volume-based one.
 2. **Translating before you finish.** Once your words stop changing on screen, translation starts
    while the recogniser is still confirming the end of the sentence. If the final transcript matches
    (ignoring case and punctuation), the translation is already under way. Messages that benefited show
    *⚡ early MT*. There are at most 3 speculative requests per utterance; turn this off under
-   *Settings → Translation*.
+   *Settings → Translation → Advanced*.
 3. **Pre-warming.** When you tap a mic, the app opens TLS/HTTP-2 connections to the translation and
    TTS providers (and loads the model on self-hosted Ollama), so those requests start hot.
 4. **Streaming translation.** Tokens are shown as they arrive and cut into speakable chunks. With
@@ -110,7 +120,7 @@ You can also open this page from the app, under **Settings → About → Release
    WebSocket, which is opened as soon as the turn starts. With other providers, TTS for chunk 1 runs while
    the LLM is still writing chunk 2. Either way, audio is streamed as PCM straight into a low-latency
    `AudioTrack`, with no file or decoder in between. If the WebSocket fails, the turn falls back to
-   sentences.
+   sentences; if it drops mid-reply, the rest is spoken from where it stopped.
 6. **Parallel turns, ordered playback.** Several turns can be in flight at once, but they're always
    spoken in conversation order. Tapping a mic interrupts playback (barge-in).
 7. **Thinking is turned off** for models where it can be: Gemini thinking budget 0, Ollama
@@ -294,9 +304,11 @@ which `@v4` rejects.
 ```
 app/src/main/java/email/sshah/kalibabel/
 ├── audio/        AudioRecorder (16 kHz frames), Vad, AudioPlayer + ordered SpeechQueue, WAV helpers
-├── data/         AppSettings, SettingsRepository, SecureKeyStore (Keystore AES-GCM), Languages, HistoryStore
+├── data/         AppSettings, SettingsRepository, SecureKeyStore (Keystore AES-GCM), Languages, HistoryStore,
+│                 ErrorLog (on-device crash/failure log)
 ├── net/          OkHttp helpers: SSE/NDJSON/byte streaming, WebSockets, error extraction
-├── pipeline/     Interpreter (orchestration + metrics), SentenceChunker, LangTagParser, Prompts
+├── pipeline/     Interpreter (orchestration + metrics), LiveTranscription (drop-proof streaming STT),
+│                 SentenceChunker, LangTagParser, Prompts
 ├── providers/    Engine interfaces, ProviderSpecs (catalogue), ProviderRegistry
 │   └── impl/     One class per API family (OpenAI-compatible, Anthropic, Gemini, ElevenLabs, Deepgram, …)
 └── ui/           Compose screens: conversation, settings, providers, pickers

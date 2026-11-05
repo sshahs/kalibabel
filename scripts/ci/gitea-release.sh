@@ -5,7 +5,9 @@
 # POST /releases converts it into a full release (Gitea >= 1.21.5 keeps it across later syncs).
 # Re-running is safe: the release is updated and same-named assets are replaced.
 #
-# Usage: gitea-release.sh <file>...
+# Usage: gitea-release.sh <file>... [--optional <file>...]
+#        Optional files are skipped if missing, and a rejected upload (e.g. a type not in
+#        [repository.release] ALLOWED_TYPES) is only a warning.
 # Env:   GITEA_TOKEN, SERVER_URL, REPOSITORY (owner/repo), TAG
 #        optional: TITLE, TARGET_SHA, NOTES_FILE (markdown release notes), DRAFT=true
 set -euo pipefail
@@ -89,7 +91,9 @@ api GET "/releases/${id}/assets"
 [ "$HTTP_CODE" = "200" ] || fail "Could not list assets of release ${TAG}"
 assets="$BODY"
 
+optional=false
 for f in "$@"; do
+  if [ "$f" = "--optional" ]; then optional=true; continue; fi
   [ -f "$f" ] || { echo "::warning::skipping missing file $f"; continue; }
   name="$(basename "$f")"
   existing="$(printf '%s' "$assets" | asset_id "$name")"
@@ -101,7 +105,13 @@ for f in "$@"; do
     echo "Uploading $name ($(du -h "$f" | cut -f1))"
   fi
   api POST "/releases/${id}/assets?name=${name}" -F "attachment=@${f}"
-  [ "$HTTP_CODE" = "201" ] || fail "Could not upload $name"
+  if [ "$HTTP_CODE" != "201" ]; then
+    if [ "$optional" = true ]; then
+      echo "::warning::Could not upload optional file $name (HTTP ${HTTP_CODE}); the release is published without it"
+      continue
+    fi
+    fail "Could not upload $name"
+  fi
 done
 
 echo "Release published: ${html_url:-${SERVER_URL%/}/${REPOSITORY}/releases/tag/${TAG}}"

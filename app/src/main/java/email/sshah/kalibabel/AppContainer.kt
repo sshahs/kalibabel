@@ -5,6 +5,7 @@ import android.util.Log
 import email.sshah.kalibabel.audio.AudioPlayer
 import email.sshah.kalibabel.audio.AudioRecorder
 import email.sshah.kalibabel.audio.SpeechQueue
+import email.sshah.kalibabel.data.ErrorLog
 import email.sshah.kalibabel.data.HistoryStore
 import email.sshah.kalibabel.data.SecureKeyStore
 import email.sshah.kalibabel.data.SettingsRepository
@@ -27,7 +28,10 @@ class AppContainer(context: Context) {
      */
     val scope = CoroutineScope(
         SupervisorJob() + Dispatchers.Main.immediate +
-            CoroutineExceptionHandler { _, e -> Log.e("KaliBabel", "Uncaught background failure", e) },
+            CoroutineExceptionHandler { _, e ->
+                Log.e("KaliBabel", "Uncaught background failure", e)
+                ErrorLog.error("Background task", e.toString(), e)
+            },
     )
 
     val http = Http.createClient()

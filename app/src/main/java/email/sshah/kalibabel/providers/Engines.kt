@@ -106,6 +106,9 @@ sealed interface SttEvent {
 
     /** A batch upload/recognition started for a captured utterance. */
     data object Transcribing : SttEvent
+
+    /** Something the user should know about this utterance (e.g. the live connection dropped). */
+    data class Notice(val message: String) : SttEvent
 }
 
 interface SttEngine {
@@ -115,6 +118,12 @@ interface SttEngine {
     fun supportsBatch(model: String): Boolean = true
 
     fun supportsStreaming(model: String): Boolean = false
+
+    /**
+     * Whether [transcribe] can take over when a [stream] with this (streaming) model fails, so
+     * the speech already captured is not lost.
+     */
+    fun supportsBatchRecovery(model: String): Boolean = supportsBatch(model)
 
     /** Transcribes one complete utterance of 16-bit mono PCM. */
     suspend fun transcribe(request: SttRequest, pcm: ShortArray, sampleRate: Int): SttResult =
@@ -177,6 +186,9 @@ interface StreamingTextTtsEngine {
      * Opens the stream immediately (so the connection is ready before the first word); text sent
      * to [text] is spoken as it arrives, and closing [text] finishes the utterance.
      * [request].text is ignored.
+     *
+     * [onVoiced] receives, in order, the text whose audio has been delivered so far (when the
+     * provider reports it), so speech that breaks off can be resumed where it stopped.
      */
-    fun synthesizeTextStream(request: TtsRequest, text: ReceiveChannel<String>): TtsOutput.Pcm
+    fun synthesizeTextStream(request: TtsRequest, text: ReceiveChannel<String>, onVoiced: (String) -> Unit = {}): TtsOutput.Pcm
 }

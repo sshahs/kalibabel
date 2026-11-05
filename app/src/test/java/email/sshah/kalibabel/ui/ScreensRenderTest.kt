@@ -8,9 +8,11 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import email.sshah.kalibabel.KaliBabelApp
+import email.sshah.kalibabel.data.ErrorLog
 import email.sshah.kalibabel.pipeline.Direction
 import email.sshah.kalibabel.pipeline.Turn
 import email.sshah.kalibabel.pipeline.TurnMetrics
@@ -18,7 +20,12 @@ import email.sshah.kalibabel.pipeline.TurnStage
 import email.sshah.kalibabel.providers.ProviderId
 import email.sshah.kalibabel.ui.providers.ProviderDetailScreen
 import email.sshah.kalibabel.ui.providers.ProvidersScreen
+import email.sshah.kalibabel.ui.settings.DiagnosticsScreen
+import email.sshah.kalibabel.ui.settings.DisplaySettings
+import email.sshah.kalibabel.ui.settings.ListeningSettings
 import email.sshah.kalibabel.ui.settings.SettingsScreen
+import email.sshah.kalibabel.ui.settings.TranslationSettings
+import email.sshah.kalibabel.ui.settings.VoiceSettings
 import email.sshah.kalibabel.ui.theme.KaliBabelTheme
 import org.junit.Rule
 import org.junit.Test
@@ -73,9 +80,53 @@ class ScreensRenderTest {
 
     @Test
     fun settingsScreen() {
-        compose.setContent { KaliBabelTheme { SettingsScreen(app.container, onBack = {}, onOpenProviders = {}) } }
+        compose.setContent { KaliBabelTheme { SettingsScreen(app.container, onBack = {}, onOpen = {}) } }
         compose.onNodeWithText("Providers & API keys").assertIsDisplayed()
+        compose.onNodeWithText("Listening").assertIsDisplayed()
+        compose.onNodeWithText("No problems recorded").assertIsDisplayed()
         snapshot("04-settings")
+    }
+
+    @Test
+    fun listeningSettingsWithAdvancedOpen() {
+        compose.setContent { KaliBabelTheme { ListeningSettings(app.container, onBack = {}) } }
+        compose.onNodeWithText("Live transcription").assertDoesNotExist()
+        compose.onNodeWithText("Advanced").performClick()
+        compose.onNodeWithText("Live transcription").assertExists()
+        snapshot("04b-settings-listening")
+    }
+
+    @Test
+    fun translationSettings() {
+        compose.setContent { KaliBabelTheme { TranslationSettings(app.container, onBack = {}) } }
+        compose.onNodeWithText("Register").assertIsDisplayed()
+        snapshot("04c-settings-translation")
+    }
+
+    @Test
+    fun voiceSettings() {
+        compose.setContent { KaliBabelTheme { VoiceSettings(app.container, onBack = {}) } }
+        compose.onNodeWithText("Speak translations aloud").assertIsDisplayed()
+        snapshot("04d-settings-voice")
+    }
+
+    @Test
+    fun displaySettings() {
+        compose.setContent { KaliBabelTheme { DisplaySettings(app.container, onBack = {}) } }
+        compose.onNodeWithText("Face-to-face layout").assertIsDisplayed()
+        snapshot("04e-settings-display")
+    }
+
+    @Test
+    fun diagnosticsWithEntries() {
+        ErrorLog.clear()
+        ErrorLog.warning("Live transcription", "ElevenLabs live connection dropped; transcribing by upload — ElevenLabs: connection dropped by the server", java.io.IOException("ElevenLabs: connection dropped by the server"))
+        ErrorLog.crash("Thread main", IllegalStateException("Example crash"))
+        compose.setContent { KaliBabelTheme { DiagnosticsScreen(onBack = {}) } }
+        compose.onNodeWithText("Thread main").assertIsDisplayed()
+        compose.onNodeWithText("Live transcription").performClick()
+        snapshot("04f-diagnostics")
+        ErrorLog.clear()
     }
 
     @Test

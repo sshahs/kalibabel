@@ -9,6 +9,7 @@ import email.sshah.kalibabel.audio.SpectralClassifier
 import email.sshah.kalibabel.audio.SpeechQueue
 import email.sshah.kalibabel.audio.Vad
 import email.sshah.kalibabel.data.AppSettings
+import email.sshah.kalibabel.data.ErrorLog
 import email.sshah.kalibabel.data.HistoryStore
 import email.sshah.kalibabel.data.Language
 import email.sshah.kalibabel.data.Languages
@@ -47,6 +48,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.flow.transformWhile
 import kotlinx.coroutines.flow.update
@@ -123,6 +125,7 @@ class Interpreter(
                 throw e
             } catch (e: Exception) {
                 Log.w(TAG, "Listening failed", e)
+                ErrorLog.error("Listening", e.userMessage(), e)
                 showError(e.userMessage())
                 markLiveTurnsFailed(e.userMessage())
             } finally {
@@ -165,15 +168,11 @@ class Interpreter(
         val slot = speech.reserve(turnId)
         scope.launch {
             try {
-                val sentences = Channel<String>(Channel.UNLIMITED)
-                val chunker = SentenceChunker(early = true)
-                chunker.push(turn.translation).forEach { sentences.send(it) }
-                chunker.flush()?.let { sentences.send(it) }
-                sentences.close()
-                speakSentences(turnId, sentences, slot, s) { target }
+                speakText(turnId, turn.translation, slot, s, target, early = true)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                ErrorLog.error("Replay", e.userMessage(), e)
                 showError(e.userMessage())
             } finally {
                 slot.close()
@@ -279,6 +278,10 @@ class Interpreter(
                         live()
                     }
                     SttEvent.SpeechEnded -> speechEndAt = System.currentTimeMillis()
+                    is SttEvent.Notice -> {
+                        val id = live()
+                        addNote(id, ev.message)
+                    }
                     SttEvent.Transcribing -> {
                         val id = live()
                         updateTurn(id) { it.copy(stage = TurnStage.TRANSCRIBING) }
@@ -329,43 +332,22 @@ class Interpreter(
     private fun micFrames(s: AppSettings): Flow<ShortArray> =
         recorder.frames(s.micSource, s.noiseSuppression)
 
-    /** Streaming STT: frames go to the provider as they are captured; local VAD drives auto-stop. */
+    /**
+     * Streaming STT: frames go to the provider as they are captured; local VAD drives auto-stop.
+     * A dropped connection falls back to uploading the speech it had not confirmed yet.
+     */
     private fun streamingEvents(engine: SttEngine, request: SttRequest, s: AppSettings, stop: CompletableDeferred<Unit>): Flow<SttEvent> =
-        channelFlow {
-            val audio = Channel<ShortArray>(capacity = 1000)
-            val vad = newVad(s)
-            val started = System.currentTimeMillis()
-            val recording = launch {
-                var spoke = false
-                micFrames(s).takeWhile { !stop.isCompleted }.collect { raw ->
-                    val frame = if (s.pauseMicWhileSpeaking && speech.isSpeaking) ShortArray(raw.size) else raw
-                    val r = vad.process(frame)
-                    send(SttEvent.Level(r.level))
-                    when (r.event) {
-                        Vad.Event.SpeechStart -> {
-                            spoke = true
-                            send(SttEvent.SpeechStarted)
-                        }
-                        is Vad.Event.SpeechEnd -> {
-                            send(SttEvent.SpeechEnded)
-                            if (s.listenMode == ListenMode.AUTO_STOP) stop.complete(Unit)
-                        }
-                        Vad.Event.None -> Unit
-                    }
-                    if (!spoke && s.listenMode == ListenMode.AUTO_STOP && System.currentTimeMillis() - started > NO_SPEECH_TIMEOUT_MS) {
-                        stop.complete(Unit)
-                    }
-                    audio.send(frame)
-                }
-                if (vad.isSpeaking) send(SttEvent.SpeechEnded)
-                audio.close()
-            }
-            try {
-                engine.stream(request, audio, Pcm.SAMPLE_RATE).collect { send(it) }
-            } finally {
-                recording.cancel()
-            }
-        }
+        resilientStream(
+            engine = engine,
+            request = request,
+            frames = micFrames(s).map { raw -> if (s.pauseMicWhileSpeaking && speech.isSpeaking) ShortArray(raw.size) else raw },
+            vad = newVad(s),
+            listenMode = s.listenMode,
+            stop = stop,
+            providerName = ProviderSpecs[s.sttProvider].displayName,
+            noSpeechTimeoutMs = NO_SPEECH_TIMEOUT_MS,
+            minUtteranceMs = MIN_UTTERANCE_MS,
+        )
 
     /** Batch STT: local VAD cuts utterances; each one is uploaded the instant the speaker pauses. */
     private fun batchEvents(engine: SttEngine, request: SttRequest, s: AppSettings, stop: CompletableDeferred<Unit>): Flow<SttEvent> =
@@ -378,7 +360,7 @@ class Interpreter(
                     if (Pcm.durationMs(pcm.size) < MIN_UTTERANCE_MS) continue
                     send(SttEvent.Transcribing)
                     val result = engine.transcribe(request, pcm, Pcm.SAMPLE_RATE)
-                    if (result.text.isNotBlank() && !isNoise(result.text)) send(SttEvent.Final(result.text, result.language))
+                    if (result.text.isNotBlank() && !isLikelyNoise(result.text)) send(SttEvent.Final(result.text, result.language))
                 }
             }
             val manual = ArrayList<ShortArray>()
@@ -500,6 +482,7 @@ class Interpreter(
                 throw e
             } catch (e: Exception) {
                 Log.w(TAG, "Turn $id failed", e)
+                ErrorLog.error("Turn", e.userMessage(), e)
                 updateTurn(id) { it.copy(stage = TurnStage.ERROR, error = e.userMessage()) }
             } finally {
                 speculation?.cancel()
@@ -653,8 +636,9 @@ class Interpreter(
             deltas.collect { d ->
                 when (d) {
                     is TranslationDelta.Status -> {
+                        val previous = statusNote
                         statusNote = d.message
-                        updateTurn(id) { it.copy(note = d.message) }
+                        updateTurn(id) { it.copy(note = withNote(withoutNote(it.note, previous), d.message)) }
                     }
                     is TranslationDelta.Target -> setTarget(if (Languages.matches(a, d.language.tag)) a else if (Languages.matches(b, d.language.tag)) b else d.language)
                     is TranslationDelta.Text -> if (tagParser != null) {
@@ -685,11 +669,12 @@ class Interpreter(
                 registry.onDeviceTranslator.isSupported(a) && registry.onDeviceTranslator.isSupported(b)
             if (!canFallback) throw e
             Log.w(TAG, "Translation failed, falling back to on-device", e)
-            updateTurn(id) { it.copy(note = "Translated on-device — ${e.userMessage()}") }
+            ErrorLog.warning("Translation", "${provider.name} failed; translated on-device — ${e.userMessage()}", e)
+            addNote(id, "Translated on-device — ${e.userMessage()}")
             val onDevice = registry.get(ProviderId.ANDROID).translation!!
             consume(onDevice.translate(translationRequest(text, source, target, s, "mlkit", context)), onDevice.isLlm)
         }
-        statusNote?.let { note -> updateTurn(id) { if (it.note == note) it.copy(note = null) else it } }
+        statusNote?.let { note -> updateTurn(id) { it.copy(note = withoutNote(it.note, note)) } }
         if (spokenTarget == null) spokenTarget = target ?: b
         if (textStream != null) {
             textStream.close()
@@ -721,20 +706,45 @@ class Interpreter(
         val ttsId = s.ttsProvider
         val side = if (language == s.langA) "A" else "B"
         val request = TtsRequest("", language, registry.model(s, ttsId, Capability.TTS), registry.voice(s, ttsId, side), s.speechRate, null)
+        val voiced = StringBuffer() // text whose audio has arrived, as reported by the provider
+        val name = ProviderSpecs[ttsId].displayName
         try {
-            enqueue(engine.synthesizeTextStream(request, text), slot)
+            enqueue(engine.synthesizeTextStream(request, text) { voiced.append(it) }, slot)
         } catch (e: CancellationException) {
             throw e
+        } catch (e: SpeechInterrupted) {
+            // Part of the reply was heard: speak the rest sentence by sentence.
+            val full = fullText.await()
+            val rest = if (voiced.isEmpty()) null else unspokenRemainder(full, voiced.toString()).takeUnless { it == full.trim() }
+            when {
+                rest == null -> {
+                    ErrorLog.warning("Voice", "$name voice stream dropped mid-reply — ${e.reason}", e.cause)
+                    addNote(id, "Speech was cut off — ${e.reason}")
+                }
+                rest.isEmpty() -> ErrorLog.warning("Voice", "$name voice stream dropped after the last word — ${e.reason}", e.cause)
+                else -> {
+                    Log.w(TAG, "Voice stream dropped mid-reply, resuming", e)
+                    ErrorLog.warning("Voice", "$name voice stream dropped mid-reply; finished it sentence by sentence — ${e.reason}", e.cause)
+                    addNote(id, "Voice stream dropped; finished the reply sentence by sentence.")
+                    speakText(id, rest, slot, s, language)
+                }
+            }
         } catch (e: Exception) {
             Log.w(TAG, "Streaming TTS failed, falling back to sentences", e)
-            updateTurn(id) { it.copy(note = "Voice stream unavailable, spoke sentence by sentence — ${e.userMessage()}") }
-            val sentences = Channel<String>(Channel.UNLIMITED)
-            val chunker = SentenceChunker(early = s.earlySpeech)
-            chunker.push(fullText.await()).forEach { sentences.send(it) }
-            chunker.flush()?.let { sentences.send(it) }
-            sentences.close()
-            speakSentences(id, sentences, slot, s) { language }
+            ErrorLog.warning("Voice", "$name voice stream unavailable; spoke sentence by sentence — ${e.userMessage()}", e)
+            addNote(id, "Voice stream unavailable, spoke sentence by sentence — ${e.userMessage()}")
+            speakText(id, fullText.await(), slot, s, language)
         }
+    }
+
+    /** Speaks [text] through the regular (non-streaming) voice, sentence by sentence. */
+    private suspend fun speakText(id: Long, text: String, slot: SpeechQueue.Slot, s: AppSettings, language: Language, early: Boolean = s.earlySpeech) {
+        val sentences = Channel<String>(Channel.UNLIMITED)
+        val chunker = SentenceChunker(early = early)
+        chunker.push(text).forEach { sentences.send(it) }
+        chunker.flush()?.let { sentences.send(it) }
+        sentences.close()
+        speakSentences(id, sentences, slot, s) { language }
     }
 
     private suspend fun speakSentences(
@@ -757,10 +767,17 @@ class Interpreter(
             val ok = runCatching { enqueue(engine.synthesize(request), slot) }
             ok.exceptionOrNull()?.let { e ->
                 if (e is CancellationException) throw e
+                if (e is SpeechInterrupted) {
+                    // Part of this sentence was heard; repeating it would be worse than moving on.
+                    ErrorLog.warning("Voice", "${ProviderSpecs[voiceProvider].displayName} audio cut off mid-sentence — ${e.reason}", e.cause)
+                    addNote(id, "Speech was cut off — ${e.reason}")
+                    return@let
+                }
                 val canFallback = s.fallbackToOnDevice && voiceProvider != ProviderId.ANDROID
                 if (!canFallback) throw e
                 Log.w(TAG, "TTS failed, falling back to system voice", e)
-                updateTurn(id) { it.copy(note = "Spoken with the system voice — ${e.userMessage()}") }
+                ErrorLog.warning("Voice", "${ProviderSpecs[voiceProvider].displayName} failed; used the system voice — ${e.userMessage()}", e)
+                addNote(id, "Spoken with the system voice — ${e.userMessage()}")
                 engine = registry.get(ProviderId.ANDROID).tts!!
                 voiceProvider = ProviderId.ANDROID
                 model = registry.model(s, ProviderId.ANDROID, Capability.TTS)
@@ -782,7 +799,8 @@ class Interpreter(
 
     /**
      * Starts the download; the item is only queued once the first bytes arrived, so a failing
-     * request can still fall back to another voice for the same sentence.
+     * request can still fall back to another voice for the same sentence. A failure after that
+     * (part of the audio was already queued) is thrown as [SpeechInterrupted].
      */
     private suspend fun pump(slot: SpeechQueue.Slot, source: Flow<ByteArray>, register: suspend (ReceiveChannel<ByteArray>) -> Unit) {
         val channel = Channel<ByteArray>(Channel.UNLIMITED)
@@ -806,7 +824,7 @@ class Interpreter(
             channel.close(e)
             if (!registered) throw e
             Log.w(TAG, "Audio stream interrupted", e)
-            updateTurn(slot.turnId) { it.copy(note = "Speech was cut off — ${e.userMessage()}") }
+            throw SpeechInterrupted(e)
         }
     }
 
@@ -819,6 +837,9 @@ class Interpreter(
     }
 
     // ============================================================== state helpers
+
+    /** Adds a line to the turn's notes (kept instead of overwriting earlier ones). */
+    private fun addNote(id: Long, message: String) = updateTurn(id) { it.copy(note = withNote(it.note, message)) }
 
     private fun updateTurn(id: Long, transform: (Turn) -> Turn) {
         _state.update { st -> st.copy(turns = st.turns.map { if (it.id == id) transform(it) else it }) }
@@ -848,12 +869,6 @@ class Interpreter(
 
     private fun persist() = history.save(_state.value.turns)
 
-    private fun isNoise(text: String): Boolean {
-        val t = text.trim().lowercase().trim('.', '!', '?', ' ')
-        // Whisper-family hallucinations on silence.
-        return t.isEmpty() || t in setOf("you", "thank you", "thanks for watching", "thank you for watching", "bye", "[music]", "(music)", "[blank_audio]")
-    }
-
     private companion object {
         const val TAG = "Interpreter"
         const val NO_SPEECH_TIMEOUT_MS = 10_000L
@@ -862,6 +877,23 @@ class Interpreter(
 }
 
 private class PlaybackDiscarded : Exception()
+
+/** The audio stream failed after part of it had been queued for playback. */
+private class SpeechInterrupted(cause: Exception) : Exception(cause.message, cause) {
+    val reason: String get() = (cause ?: this).userMessage()
+}
+
+/** Turn notes are newline-separated lines. */
+internal fun withNote(notes: String?, message: String): String {
+    val line = message.replace('\n', ' ').trim()
+    return (notes?.lines().orEmpty().filter { it.isNotBlank() && it != line } + line).joinToString("\n")
+}
+
+internal fun withoutNote(notes: String?, message: String?): String? {
+    if (message == null) return notes
+    val line = message.replace('\n', ' ').trim()
+    return notes?.lines()?.filter { it.isNotBlank() && it != line }?.joinToString("\n")?.ifBlank { null }
+}
 
 /** Short, user-facing description of a failure. */
 fun Throwable.userMessage(): String = when (this) {

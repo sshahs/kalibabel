@@ -173,3 +173,37 @@ class LangTagParser {
         val TAG_REGEX = Regex("^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$")
     }
 }
+
+/**
+ * The part of [full] that still has to be spoken after a voice stream broke off, given the
+ * characters the provider reported as voiced (its whitespace may differ from ours). A word that
+ * was cut in the middle is repeated from its start rather than skipped.
+ */
+fun unspokenRemainder(full: String, voiced: String): String {
+    val said = voiced.filterNot { it.isWhitespace() }
+    var i = 0
+    var matched = 0
+    while (i < full.length && matched < said.length) {
+        val c = full[i]
+        if (c.isWhitespace()) {
+            i++
+            continue
+        }
+        if (!c.equals(said[matched], ignoreCase = true)) break
+        matched++
+        i++
+    }
+    if (i in 1 until full.length && !full[i].isWhitespace() && !full[i - 1].isWhitespace()) {
+        var end = i
+        while (end < full.length && !full[end].isWhitespace()) end++
+        if (full.substring(i, end).none { it.isLetterOrDigit() }) {
+            i = end // only punctuation of a finished word is left
+        } else {
+            // Back to the start of the word; scripts without spaces stop at the last punctuation.
+            while (i > 0 && !full[i - 1].isWhitespace() && full[i - 1] !in WORD_STOPS) i--
+        }
+    }
+    return full.substring(i).trim()
+}
+
+private val WORD_STOPS = setOf('.', ',', ';', ':', '!', '?', '…', '。', '，', '、', '！', '？', '；', '：', '．', '।', '؟', '،')

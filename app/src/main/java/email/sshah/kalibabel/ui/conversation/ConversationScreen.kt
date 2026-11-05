@@ -58,8 +58,10 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -89,6 +91,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import email.sshah.kalibabel.AppContainer
 import email.sshah.kalibabel.data.AppSettings
+import email.sshah.kalibabel.data.ErrorLog
 import email.sshah.kalibabel.data.Language
 import email.sshah.kalibabel.data.Languages
 import email.sshah.kalibabel.pipeline.Direction
@@ -105,6 +108,7 @@ fun ConversationScreen(
     incomingText: String?,
     onIncomingConsumed: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenDiagnostics: () -> Unit = {},
 ) {
     val interpreter = container.interpreter
     val state by interpreter.state.collectAsStateWithLifecycle()
@@ -134,6 +138,19 @@ fun ConversationScreen(
             interpreter.translateText(incomingText, Direction.AUTO)
             onIncomingConsumed()
         }
+    }
+    // After a crash, offer the log once (the next launch); viewing or dismissing marks it seen.
+    val unseenCrash by ErrorLog.unseenCrash.collectAsStateWithLifecycle()
+    LaunchedEffect(unseenCrash) {
+        if (!unseenCrash) return@LaunchedEffect
+        val result = snackbar.showSnackbar(
+            "KaliBabel closed unexpectedly last time.",
+            actionLabel = "View log",
+            withDismissAction = true,
+            duration = SnackbarDuration.Long,
+        )
+        ErrorLog.markCrashSeen()
+        if (result == SnackbarResult.ActionPerformed) onOpenDiagnostics()
     }
     LaunchedEffect(state.error) {
         state.error?.let {
