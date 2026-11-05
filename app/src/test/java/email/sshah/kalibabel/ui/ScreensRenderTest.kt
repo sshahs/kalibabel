@@ -70,6 +70,15 @@ class ScreensRenderTest {
     }
 
     @Test
+    @Config(qualifiers = "+night")
+    fun conversationDarkTheme() {
+        seedTurns()
+        compose.setContent { KaliBabelTheme { KaliBabelRoot(app.container, null) {} } }
+        compose.onNodeWithText("Go straight for two blocks and turn left.").assertIsDisplayed()
+        snapshot("08-conversation-dark")
+    }
+
+    @Test
     fun faceToFace() {
         seedTurns()
         app.container.settings.update { it.copy(faceToFace = true) }
@@ -124,8 +133,9 @@ class ScreensRenderTest {
         ErrorLog.crash("Thread main", IllegalStateException("Example crash"))
         compose.setContent { KaliBabelTheme { DiagnosticsScreen(onBack = {}) } }
         compose.onNodeWithText("Thread main").assertIsDisplayed()
-        compose.onNodeWithText("Live transcription").performClick()
         snapshot("04f-diagnostics")
+        compose.onNodeWithText("Live transcription").performClick()
+        compose.onNodeWithText("java.io.IOException", substring = true).assertExists()
         ErrorLog.clear()
     }
 

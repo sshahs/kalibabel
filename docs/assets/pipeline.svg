@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="470" viewBox="0 0 1280 470" role="img" aria-label="One turn: you speak, speech recognition, translation, voice, they hear it. The stages overlap instead of waiting for each other.">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#07263B"/>
+      <stop offset="1" stop-color="#14527E"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#9CC8E6"/>
+    </marker>
+    <style>
+      .t { font-family: "Inter", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+      .cap { font-size: 17px; font-weight: 700; letter-spacing: 2px; fill: #9CC8E6; }
+      .h { font-size: 27px; font-weight: 800; fill: #FFFFFF; }
+      .s { font-size: 16px; font-weight: 500; fill: #CFE5F5; }
+      .pill { font-size: 21px; font-weight: 800; fill: #0B3C5D; }
+      .bar { font-size: 17px; font-weight: 700; }
+      .mark { font-size: 15px; font-weight: 600; fill: #E3F1FB; }
+    </style>
+  </defs>
+
+  <rect width="1280" height="470" rx="26" fill="url(#bg)"/>
+  <text class="t cap" x="44" y="54">ONE TURN, FROM YOUR VOICE TO THEIRS</text>
+
+  <!-- you speak -->
+  <g transform="translate(45 108)">
+    <rect width="140" height="104" rx="52" fill="#FFD23F"/>
+    <g transform="translate(20 30)" fill="none" stroke="#0B3C5D" stroke-width="4" stroke-linecap="round">
+      <rect x="6" y="0" width="16" height="28" rx="8" fill="#0B3C5D"/>
+      <path d="M0,22 a14,14 0 0 0 28,0"/>
+      <path d="M14,36 v8"/>
+    </g>
+    <text class="t pill" x="60" y="47">You</text>
+    <text class="t pill" x="60" y="72">speak</text>
+  </g>
+
+  <!-- stage cards -->
+  <g class="t">
+    <rect x="219" y="96" width="258" height="128" rx="18" fill="#0B3C5D" stroke="#328CC1" stroke-width="2"/>
+    <text class="h" x="239" y="140">Listen</text>
+    <text class="s" x="239" y="172">Words appear as you talk,</text>
+    <text class="s" x="239" y="198">streamed live to the app</text>
+
+    <rect x="511" y="96" width="258" height="128" rx="18" fill="#0B3C5D" stroke="#328CC1" stroke-width="2"/>
+    <text class="h" x="531" y="140">Translate</text>
+    <text class="s" x="531" y="172">Starts on stable words,</text>
+    <text class="s" x="531" y="198">streams token by token</text>
+
+    <rect x="803" y="96" width="258" height="128" rx="18" fill="#0B3C5D" stroke="#328CC1" stroke-width="2"/>
+    <text class="h" x="823" y="140">Speak</text>
+    <text class="s" x="823" y="172">Voice starts mid-sentence</text>
+    <text class="s" x="823" y="198">and plays as it arrives</text>
+  </g>
+
+  <!-- they hear it -->
+  <g transform="translate(1095 108)">
+    <rect width="140" height="104" rx="52" fill="#FFD23F"/>
+    <g transform="translate(18 34)" fill="#0B3C5D" stroke="#0B3C5D" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M0,10 h8 l12,-10 v36 l-12,-10 h-8 z"/>
+      <path d="M28,8 a12,12 0 0 1 0,20" fill="none"/>
+    </g>
+    <text class="t pill" x="58" y="47" font-size="18">They</text>
+    <text class="t pill" x="58" y="72" font-size="18">hear it</text>
+  </g>
+
+  <!-- arrows -->
+  <g stroke="#9CC8E6" stroke-width="3" fill="none" marker-end="url(#arrow)">
+    <path d="M189,160 H211"/>
+    <path d="M481,160 H503"/>
+    <path d="M773,160 H795"/>
+    <path d="M1065,160 H1087"/>
+  </g>
+
+  <!-- overlap timeline (schematic) -->
+  <text class="t cap" x="44" y="290">THE STAGES OVERLAP INSTEAD OF WAITING FOR EACH OTHER  ·  SCHEMATIC</text>
+  <g class="t">
+    <rect x="219" y="312" width="471" height="30" rx="15" fill="#328CC1"/>
+    <text class="bar" x="235" y="333" fill="#FFFFFF">listening</text>
+
+    <rect x="545" y="352" width="365" height="30" rx="15" fill="#8ECDFF"/>
+    <text class="bar" x="561" y="373" fill="#0B3C5D">translating</text>
+
+    <rect x="735" y="392" width="500" height="30" rx="15" fill="#FFD23F"/>
+    <text class="bar" x="751" y="413" fill="#0B3C5D">speaking</text>
+  </g>
+  <g stroke="#E3F1FB" stroke-width="2" stroke-dasharray="5 6">
+    <path d="M690,304 V440"/>
+  </g>
+  <text class="t mark" x="698" y="452">you stop talking</text>
+</svg>

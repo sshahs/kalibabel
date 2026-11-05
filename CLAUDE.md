@@ -21,7 +21,9 @@
   rebuilding the tag's commit with the CI version env gives the same `mapping.txt` (match `pg_map_id`).
 - Users share crash/failure logs from Settings → Diagnostics (`data/ErrorLog`, on-device, keys redacted).
   Record failures the app works around with `ErrorLog.warning`, user-visible ones with `ErrorLog.error`.
-- UI render tests (`app/src/test/.../ui/ScreensRenderTest.kt`) write screenshots to `app/build/screenshots/`.
+- UI render tests (`app/src/test/.../ui/ScreensRenderTest.kt`) write screenshots to `app/build/screenshots/`;
+  `python3 scripts/docs/readme-images.py` turns them into the README hero (`docs/assets/hero.png`) and
+  `docs/screenshots/`. Banner and pipeline diagram are hand-written SVGs in `docs/assets/`. No license file (user's choice).
 - CI: `.gitea/workflows/android.yml` runs on the Gitea pull mirror https://tig.sshah.email/Cheeba/kalibabel via
   act_runner for the tags GitHub creates — `build-*` (Gitea prerelease) and `v*` (Gitea release) via
   `scripts/ci/gitea-release.sh` — one run per update, every run publishes. Branch syncs are not built separately.

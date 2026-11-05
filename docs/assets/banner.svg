@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="360" viewBox="0 0 1280 360" role="img" aria-label="KaliBabel: hear and speak every language, live">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#07263B"/>
+      <stop offset="0.55" stop-color="#0B3C5D"/>
+      <stop offset="1" stop-color="#1F6B9A"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.2" cy="0.5" r="0.45">
+      <stop offset="0" stop-color="#FFD23F" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#FFD23F" stop-opacity="0"/>
+    </radialGradient>
+    <style>
+      .t { font-family: "Inter", "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif; }
+      .hi { font-family: "Noto Sans", "Segoe UI", Roboto, sans-serif; fill: #FFFFFF; }
+    </style>
+  </defs>
+
+  <rect width="1280" height="360" rx="28" fill="url(#sky)"/>
+  <rect width="1280" height="360" rx="28" fill="url(#glow)"/>
+
+  <!-- sound rings spreading from the fish -->
+  <g fill="none" stroke="#FFFFFF" stroke-linecap="round">
+    <circle cx="225" cy="180" r="150" stroke-opacity="0.10" stroke-width="2"/>
+    <circle cx="225" cy="180" r="205" stroke-opacity="0.07" stroke-width="2"/>
+    <circle cx="225" cy="180" r="262" stroke-opacity="0.05" stroke-width="2"/>
+    <circle cx="225" cy="180" r="322" stroke-opacity="0.035" stroke-width="2"/>
+  </g>
+
+  <!-- "hello" in many languages drifting by -->
+  <g class="hi">
+    <text x="905" y="62" font-size="30" opacity="0.30" transform="rotate(-6 905 62)">Hola</text>
+    <text x="1040" y="92" font-size="26" opacity="0.22" transform="rotate(4 1040 92)">નમસ્તે</text>
+    <text x="1150" y="58" font-size="24" opacity="0.18">Ciao</text>
+    <text x="960" y="318" font-size="28" opacity="0.24" transform="rotate(5 960 318)">こんにちは</text>
+    <text x="1120" y="300" font-size="26" opacity="0.30" transform="rotate(-4 1120 300)">Bonjour</text>
+    <text x="1185" y="200" font-size="24" opacity="0.20" transform="rotate(8 1185 200)">مرحبا</text>
+    <text x="1045" y="232" font-size="22" opacity="0.16">Привет</text>
+    <text x="1150" y="140" font-size="26" opacity="0.24" transform="rotate(-8 1150 140)">你好</text>
+    <text x="1210" y="342" font-size="20" opacity="0.16">Olá</text>
+    <text x="880" y="352" font-size="20" opacity="0.14">Merhaba</text>
+  </g>
+
+  <!-- the babel fish (same drawing as the app icon), 3.2× -->
+  <g transform="translate(52 7) scale(3.2)">
+    <circle cx="54" cy="54" r="40" fill="#0B3C5D" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="1"/>
+    <path fill="#FFD23F" d="M30,54 C30,42 42,35 54,35 C64,35 71,41 74,47 L84,39 L84,69 L74,61 C71,67 64,73 54,73 C42,73 30,66 30,54 Z"/>
+    <path fill="#0B3C5D" d="M44,50 m-3.5,0 a3.5,3.5 0,1 1,7 0 a3.5,3.5 0,1 1,-7 0"/>
+    <path fill="none" stroke="#0B3C5D" stroke-width="2.5" stroke-linecap="round" d="M54,44 C58,50 58,58 54,64"/>
+    <path fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" d="M24,48 C21,52 21,56 24,60"/>
+    <path fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" d="M18,44 C13,50 13,58 18,64"/>
+  </g>
+
+  <!-- wordmark -->
+  <text class="t" x="430" y="168" font-size="104" font-weight="800" letter-spacing="-2" fill="#FFFFFF">Kali<tspan fill="#FFD23F">Babel</tspan></text>
+  <text class="t" x="434" y="222" font-size="32" font-weight="500" fill="#E3F1FB">Hear and speak every language, live.</text>
+  <text class="t" x="435" y="268" font-size="19" font-weight="600" fill="#9CC8E6" letter-spacing="1">SPEECH → TRANSLATION → SPEECH  ·  BRING YOUR OWN KEYS</text>
+</svg>
